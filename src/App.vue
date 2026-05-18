@@ -21,6 +21,7 @@ const handleSelect = (key: string, keyPath: string[]) => {
   >
     <el-menu-item index="/h5/polyglot">H5多语言工具</el-menu-item>
     <el-menu-item index="/pc/polyglot" disabled>PC多语言工具</el-menu-item>
+    <el-menu-item index="/excel/excel-to-json">表格工具</el-menu-item>
     <el-menu-item index="/system/tableKey">表格键值管理</el-menu-item>
   </el-menu>
 

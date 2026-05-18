@@ -11,6 +11,11 @@ const routes: RouteRecordRaw[] = [
     name: 'system-tableKey',
     component: () => import('../views/system/TitleKeyBD.vue')
   },
+  {
+    path: '/excel/excel-to-json',
+    name: 'excel-to-json',
+    component: () => import('../views/excel/ExcelToJson.vue')
+  },
 ]
 
 const router = createRouter({
