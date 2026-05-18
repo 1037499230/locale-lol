@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
+
+import { ref } from 'vue'
+import router from "@/router";
+
+const activeIndex = ref('1')
+const handleSelect = (key: string, keyPath: string[]) => {
+
+  router.push({
+    path: key
+  })
+}
 </script>
 
 <template>
-  <nav style="padding: 20px; background: #f5f5f5;">
-    <RouterLink to="/h5/polyglot" class="mr-1">H5多语言工具</RouterLink>
-    <RouterLink to="/pc/polyglot">PC多语言工具</RouterLink>
-    <RouterLink to="/system/tableKey">表格键值管理</RouterLink>
-  </nav>
+  <el-menu
+      :default-active="activeIndex"
+      mode="horizontal"
+      @select="handleSelect"
+  >
+    <el-menu-item index="/h5/polyglot">H5多语言工具</el-menu-item>
+    <el-menu-item index="/pc/polyglot" disabled>PC多语言工具</el-menu-item>
+    <el-menu-item index="/system/tableKey">表格键值管理</el-menu-item>
+  </el-menu>
 
   <RouterView />
+
 </template>
 
 <style scoped>

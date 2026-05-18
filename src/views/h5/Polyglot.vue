@@ -224,7 +224,7 @@ const formatFileSize = (bytes: number) => {
 </script>
 
 <template>
-  <div class="mt-5 p-5">
+  <div class="mt-3">
     <el-button @click="handleSelectFolder">选择源文件夹</el-button>
     <el-button
       v-if="folderPath"
