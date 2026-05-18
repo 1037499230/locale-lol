@@ -3,6 +3,63 @@ const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 
+/**
+ * 默认的 TitleKeys 配置数据
+ */
+const DEFAULT_TITLE_KEYS = {
+  "key": "key",
+  "zh": "中文简体",
+  "en": "英语",
+  "bg": "保加利亚语",
+  "de": "德语",
+  "el": "希腊语",
+  "es": "西班牙语",
+  "he": "希伯来语",
+  "hu": "匈牙利语",
+  "it": "意大利语",
+  "ka": "格鲁吉亚语",
+  "kk": "哈萨克语",
+  "ky": "吉尔吉斯语",
+  "lt": "立陶宛语",
+  "mn": "蒙古语",
+  "pl": "波兰语",
+  "ru": "俄语",
+  "sk": "斯洛伐克语",
+  "tg": "塔吉克语",
+  "tr": "土耳其语",
+  "uk": "乌克兰语",
+  "uz": "乌兹别克语",
+  "es-col": "西班牙语-哥伦比亚",
+  "es-mex": "西班牙语-墨西哥",
+  "fr": "法语",
+  "en-af": "非洲-英语",
+  "bn": "孟加拉语",
+  "ro": "罗马尼亚语",
+  "en-ay": "东南亚-英语"
+}
+
+/**
+ * 获取配置文件的完整路径
+ */
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'titleKeys.json')
+}
+
+/**
+ * 初始化配置文件，如果不存在则写入默认数据
+ */
+function initConfigFile() {
+  const configPath = getConfigPath()
+  if (!fs.existsSync(configPath)) {
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(DEFAULT_TITLE_KEYS, null, 2), 'utf8')
+      console.log('✅ 已创建默认配置文件:', configPath)
+    } catch (error) {
+      console.error('❌ 创建默认配置文件失败:', error)
+    }
+  }
+}
+
 let mainWindow
 
 function createWindow() {
@@ -23,6 +80,7 @@ function createWindow() {
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    mainWindow.webContents.openDevTools()
   }
 
   mainWindow.on('closed', () => {
@@ -63,7 +121,8 @@ ipcMain.handle('get-folder-files', async (event, folderPath) => {
 
 ipcMain.handle('process-locales', async (event, data, standardFile) => {
   try {
-    const result = processLocales(data, standardFile)
+    console.log('数据:', data, standardFile)
+    const result = processLocales(data.data, data.standardFile)
     const cleanData = result.map(item => {
       const cleanItem = {}
       for (const key in item) {
@@ -76,6 +135,26 @@ ipcMain.handle('process-locales', async (event, data, standardFile) => {
     return { success: true, data: cleanData }
   } catch (error) {
     console.error('处理多语言失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('process-missing-locales', async (event, data, zhCode, secondRefCode) => {
+  try {
+    const results = processMissingLocales(data, zhCode, secondRefCode)
+    return { success: true, results }
+  } catch (error) {
+    console.error('处理缺失项失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('export-missing-excel', async (event, results, folderPaths) => {
+  try {
+    const files = generateMissingExcel(results, folderPaths)
+    return { success: true, files }
+  } catch (error) {
+    console.error('导出缺失项 Excel 失败:', error)
     return { success: false, error: error.message }
   }
 })
@@ -104,7 +183,42 @@ ipcMain.handle('export-excel-to-folder', async (event, { data, folderPath }) => 
   }
 })
 
+ipcMain.handle('save-title-keys', (event, data) => {
+  try {
+    const filePath = path.join(app.getPath('userData'), 'titleKeys.json');
+    fs.writeFileSync(filePath, data);
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+});
+
+ipcMain.handle('get-title-keys', () => {
+  try {
+    const filePath = getConfigPath();
+    if (fs.existsSync(filePath)) {
+      return { success: true, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) }
+    } else {
+      return { success: true, data: {} }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+});
+
+ipcMain.handle('get-desktop-path', () => {
+  try {
+    const desktopPath = path.join(app.getPath('home'), 'Desktop');
+    return { success: true, path: desktopPath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 app.whenReady().then(() => {
+  // 初始化配置文件
+  initConfigFile()
+  
   createWindow()
 
   app.on('activate', () => {

@@ -37,6 +37,9 @@ declare global {
         files?: Array<{ lang: string; path: string }>
         error?: string 
       }>
+      saveTitleKeys: (data: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
+      getTitleKeys: () => Promise<{ success: boolean; data?: { [key: string]: string }; error?: string }>
+      getDesktopPath: () => Promise<{ success: boolean; path?: string; error?: string }>
     }
   }
 }

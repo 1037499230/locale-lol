@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import {ref} from "vue";
-import {ElMessage} from "element-plus";
+import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
 
 /**
  * 对话框提交事件的数据接口
  */
 export interface Interface {
   /** 标准文件路径 */
-  standardFile: string;
+  standardFile: string
   /** 保存结果的路径 */
-  saveResult: string;
+  saveResult: string
   /** 对照文件路径 */
-  controlFile: string;
+  controlFile: string
   /** 选择类型（locales 或 missing） */
-  selectType: string;
+  selectType: string
 }
 
 const {
@@ -21,6 +21,7 @@ const {
   handleProcessLocales,
   handleSelectSaveFolder,
   openDialog,
+  selectType,
   standardFile,
   controlFile,
   saveResult,
@@ -41,9 +42,7 @@ function useDialog(): any {
   const standardFile = ref<string>('')
   // 选定的对照文件路径
   const controlFile = ref<string>('')
-  // 结果保存路径
-  const saveResult = ref<string>('D:\\')
-  // 从父组件传入的语言配置列表
+  const saveResult = ref<string>('')
   const selectedLocales = ref<Array<any>>([])
 
   /**
@@ -51,10 +50,19 @@ function useDialog(): any {
    * @param {Array<any>} locales - 语言配置数组
    * @param {string} type - 操作类型（'locales' 或 'missing'）
    */
-  const openDialog = (locales: Array<any>, type: string) => {
+  const openDialog = async (locales: Array<any>, type: string) => {
+    standardFile.value = ''
+    controlFile.value = ''
     showDialog.value = true
     selectedLocales.value = locales
     selectType.value = type
+
+    if (!saveResult.value) {
+      const res = await window.electronAPI?.getDesktopPath()
+      if (res?.success && res.path) {
+        saveResult.value = res.path
+      }
+    }
   }
 
   /**
@@ -62,7 +70,7 @@ function useDialog(): any {
    * 触发 on-submit 事件，传递选定的文件路径和操作类型
    */
   const handleProcessLocales = async () => {
-    emits('on-submit', {standardFile: standardFile.value, controlFile: controlFile.value, saveResult: saveResult.value, selectType: selectType.value})
+    emits('on-submit', { standardFile: standardFile.value, controlFile: controlFile.value, saveResult: saveResult.value, selectType: selectType.value })
   }
 
   /**
@@ -85,6 +93,7 @@ function useDialog(): any {
     controlFile,
     saveResult,
     selectedLocales,
+    selectType,
     handleProcessLocales,
     handleSelectSaveFolder,
     openDialog
@@ -100,7 +109,7 @@ const emits = defineEmits(['on-submit'])
 /**
  * 暴露 openDialog 方法给父组件调用
  */
-defineExpose({openDialog})
+defineExpose({ openDialog })
 
 </script>
 
@@ -114,7 +123,7 @@ defineExpose({openDialog})
           :value="item.code"
       />
     </el-select>
-    <el-select class="mt-2" v-model="controlFile" placeholder="请选择对照文件(非必选)">
+    <el-select class="mt-2" v-model="controlFile" placeholder="请选择对照文件(非必选)" v-if="selectType === 'missing'">
       <el-option
           v-for="item in selectedLocales"
           :key="item.code"

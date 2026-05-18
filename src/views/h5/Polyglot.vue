@@ -176,15 +176,32 @@ const handleProcessLocales = async ({standardFile, saveResult}: Interface) => {
  * 处理缺失项对比并导出 Excel
  * 分析选中文件中相对于标准文件的缺失项，生成对比报告
  * @param {Interface} param0 - 参数对象
- * @param {string} param0.standardFile - 标准文件路径
- * @param {string} param0.controlFile - 对照文件路径
+ * @param {string} param0.standardFile - 标准文件的语言代码
+ * @param {string} param0.controlFile - 对照文件的语言代码
  * @param {string} param0.saveResult - 保存结果的路径
  */
 const handleProcessMissing = async ({standardFile, controlFile, saveResult}: Interface) => {
   try {
-    console.log(standardFile, controlFile, saveResult)
-    // todo 处理缺失项对比
     ElMessage.info('正在分析缺失项...')
+
+    const res = await window.electronAPI?.processMissingLocales(
+      JSON.stringify(selectedLocales.value),
+      standardFile,
+      controlFile || undefined
+    )
+
+    if (res?.success && res.results) {
+      const exportResult = await window.electronAPI?.exportMissingExcel(res.results, JSON.stringify({saveResult, standardFile, controlFile}))
+
+      if (exportResult?.success) {
+        const totalMissing = res.results.reduce((sum, r) => sum + r.count, 0)
+        ElMessage.success(`分析完成！共发现 ${totalMissing} 个缺失项，文件已保存到: ${saveResult}`)
+      } else {
+        ElMessage.error(exportResult?.error || '导出失败')
+      }
+    } else {
+      ElMessage.error(res?.error || '分析失败')
+    }
   } catch (error) {
     ElMessage.error('操作失败')
     console.error('错误:', error)

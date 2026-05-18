@@ -6,26 +6,36 @@ const tableData = ref<any[]>([])
 const dialogVisible = ref(false)
 const textarea = ref('')
 
-onMounted(() => {
-  const res = JSON.parse(localStorage.getItem('tableData') || '{}')
-  tableData.value = Object.keys(res).map(item => {
+onMounted(async () => {
+  // 从 Electron 主进程获取持久化配置
+  const res = await window.electronAPI?.getTitleKeys() || {}
+  if (!res.success || !res.data) {
+    ElMessage.error('获取配置失败')
+    return
+  }
+  const data = res.data
+  tableData.value = Object.keys(data).map(item => {
     return {
       label: item,
-      value: res[item]
+      value: data[item]
     }
   })
 })
 
 function handleAdd() {
-  // localStorage.setItem('tableData', JSON.stringify(tableData.value))
   tableData.value.push({label: '', value: ''})
 }
 
-function handleSubmit() {
-  // localStorage.setItem('tableData', JSON.stringify(tableData.value))
+async function handleSubmit() {
   try {
-    localStorage.setItem('tableData', JSON.stringify(Object.fromEntries(tableData.value.map(({ label, value }) => [label, value]))))
-    ElMessage.success('保存成功')
+    const dataObj = Object.fromEntries(tableData.value.map(({ label, value }) => [label, value]))
+    // 调用 Electron API 保存到文件
+    const res = await window.electronAPI?.saveTitleKeys(JSON.stringify(dataObj))
+    if (res.success) {
+      ElMessage.success('保存成功')
+    } else {
+      ElMessage.error('保存失败')
+    }
   } catch (e) {
     ElMessage.error('保存失败')
   }

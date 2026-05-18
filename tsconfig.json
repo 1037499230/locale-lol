@@ -8,6 +8,7 @@
     },
     "noEmit": true,
     "allowJs": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "module": "ESNext"
   }
 }
