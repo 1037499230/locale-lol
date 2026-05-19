@@ -42,6 +42,9 @@ declare global {
       getDesktopPath: () => Promise<{ success: boolean; path?: string; error?: string }>
       selectJsonFile: () => Promise<string | null>
       mergeLocaleFile: (tempData: string, type: string, filePath: string) => Promise<{ success: boolean; error?: string }>
+      getLangMap: (type?: string) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
+      saveLangMap: (data: string, type?: string) => Promise<{ success: boolean; error?: string }>
+      batchAddLocale: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
     }
   }
 }

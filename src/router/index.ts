@@ -12,6 +12,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/system/TitleKeyBD.vue')
   },
   {
+    path: '/add/addLocale',
+    name: 'add-AddLocale',
+    component: () => import('../views/add/AddLocale.vue')
+  },
+  {
     path: '/excel/excel-to-json',
     name: 'excel-to-json',
     component: () => import('../views/excel/ExcelToJson.vue')

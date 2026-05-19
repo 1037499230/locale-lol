@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDesktopPath: () => ipcRenderer.invoke('get-desktop-path'),
   selectJsonFile: () => ipcRenderer.invoke('select-json-file'),
   mergeLocaleFile: (tempData, type, filePath) => ipcRenderer.invoke('merge-locale-file', tempData, type, filePath),
+  getLangMap: (type) => ipcRenderer.invoke('get-lang-map', type),
+  saveLangMap: (data, type) => ipcRenderer.invoke('save-lang-map', data, type),
+  batchAddLocale: (dirPath, excludePattern, targetProperty, objectsToAdd, type) => ipcRenderer.invoke('batch-add-locale', dirPath, excludePattern, targetProperty, objectsToAdd, type),
 })

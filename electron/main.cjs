@@ -2,52 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
+const { initLangMapFile, batchAddLocales } = require('./addLocaleProcessor.cjs')
 
-/**
- * 将扁平化的 temp 对象结构转换为嵌套的对象结构
- */
-function unflattenObject(flatObj) {
-  const result = {}
-  for (const key in flatObj) {
-    if (Object.prototype.hasOwnProperty.call(flatObj, key)) {
-      const keys = key.split('.')
-      let current = result
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i]
-        if (i === keys.length - 1) {
-          current[k] = flatObj[key]
-        } else {
-          if (!(k in current)) current[k] = {}
-          current = current[k]
-        }
-      }
-    }
-  }
-  return result
-}
-
-/**
- * 深度合并两个对象，保留目标对象的结构
- */
-function deepMerge(target, source) {
-  const result = JSON.parse(JSON.stringify(target))
-  function mergeRecursive(targetObj, sourceObj) {
-    for (const key in sourceObj) {
-      if (Object.prototype.hasOwnProperty.call(sourceObj, key)) {
-        if (sourceObj[key] !== null && typeof sourceObj[key] === 'object' && !Array.isArray(sourceObj[key]) &&
-            targetObj[key] !== null && typeof targetObj[key] === 'object' && !Array.isArray(targetObj[key])) {
-          if (!targetObj[key]) targetObj[key] = {}
-          mergeRecursive(targetObj[key], sourceObj[key])
-        } else {
-          targetObj[key] = sourceObj[key]
-        }
-      }
-    }
-  }
-  const nestedSource = unflattenObject(source)
-  mergeRecursive(result, nestedSource)
-  return result
-}
 
 /**
  * 默认的 TitleKeys 配置数据
@@ -112,6 +68,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: '你就用吧老铁，一用一个不吱声 - Locale LOL',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -261,11 +218,6 @@ ipcMain.handle('get-desktop-path', () => {
   }
 });
 
-ipcMain.handle('get-available-locales', async () => {
-  // 这里可以根据你的项目结构动态读取，或者硬编码常用语言
-  return { success: true, data: ['zh', 'en', 'es', 'fr', 'de', 'ro', 'ru'] }
-})
-
 ipcMain.handle('select-json-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -299,9 +251,13 @@ ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) =
   }
 })
 
+
 app.whenReady().then(() => {
   // 初始化配置文件
   initConfigFile()
+  // 初始化 H5 和 PC 的语言映射文件
+  initLangMapFile('h5')
+  initLangMapFile('pc')
   
   createWindow()
 
@@ -315,5 +271,37 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
+  }
+})
+
+ipcMain.handle('get-lang-map', (event, type = 'h5') => {
+  try {
+    const filePath = path.join(app.getPath('userData'), `langMap-${type}.json`)
+    if (fs.existsSync(filePath)) {
+      return { success: true, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) }
+    } else {
+      return { success: true, data: {} }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('save-lang-map', (event, dataStr, type = 'h5') => {
+  try {
+    const filePath = path.join(app.getPath('userData'), `langMap-${type}.json`)
+    fs.writeFileSync(filePath, dataStr, 'utf8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('batch-add-locale', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5') => {
+  try {
+    const result = batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
+    return result
+  } catch (error) {
+    return { success: false, error: error.message }
   }
 })
