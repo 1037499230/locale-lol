@@ -40,6 +40,8 @@ declare global {
       saveTitleKeys: (data: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
       getTitleKeys: () => Promise<{ success: boolean; data?: { [key: string]: string }; error?: string }>
       getDesktopPath: () => Promise<{ success: boolean; path?: string; error?: string }>
+      selectJsonFile: () => Promise<string | null>
+      mergeLocaleFile: (tempData: string, type: string, filePath: string) => Promise<{ success: boolean; error?: string }>
     }
   }
 }

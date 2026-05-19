@@ -4,6 +4,52 @@ const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 
 /**
+ * 将扁平化的 temp 对象结构转换为嵌套的对象结构
+ */
+function unflattenObject(flatObj) {
+  const result = {}
+  for (const key in flatObj) {
+    if (Object.prototype.hasOwnProperty.call(flatObj, key)) {
+      const keys = key.split('.')
+      let current = result
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i]
+        if (i === keys.length - 1) {
+          current[k] = flatObj[key]
+        } else {
+          if (!(k in current)) current[k] = {}
+          current = current[k]
+        }
+      }
+    }
+  }
+  return result
+}
+
+/**
+ * 深度合并两个对象，保留目标对象的结构
+ */
+function deepMerge(target, source) {
+  const result = JSON.parse(JSON.stringify(target))
+  function mergeRecursive(targetObj, sourceObj) {
+    for (const key in sourceObj) {
+      if (Object.prototype.hasOwnProperty.call(sourceObj, key)) {
+        if (sourceObj[key] !== null && typeof sourceObj[key] === 'object' && !Array.isArray(sourceObj[key]) &&
+            targetObj[key] !== null && typeof targetObj[key] === 'object' && !Array.isArray(targetObj[key])) {
+          if (!targetObj[key]) targetObj[key] = {}
+          mergeRecursive(targetObj[key], sourceObj[key])
+        } else {
+          targetObj[key] = sourceObj[key]
+        }
+      }
+    }
+  }
+  const nestedSource = unflattenObject(source)
+  mergeRecursive(result, nestedSource)
+  return result
+}
+
+/**
  * 默认的 TitleKeys 配置数据
  */
 const DEFAULT_TITLE_KEYS = {
@@ -214,6 +260,44 @@ ipcMain.handle('get-desktop-path', () => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('get-available-locales', async () => {
+  // 这里可以根据你的项目结构动态读取，或者硬编码常用语言
+  return { success: true, data: ['zh', 'en', 'es', 'fr', 'de', 'ro', 'ru'] }
+})
+
+ipcMain.handle('select-json-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON Files', extensions: ['json'] }]
+  })
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0]
+  }
+  return null
+})
+
+ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) => {
+  try {
+    const tempData = JSON.parse(tempDataStr)
+    
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `目标文件不存在: ${filePath}` }
+    }
+
+    const targetRaw = fs.readFileSync(filePath, 'utf-8')
+    const targetData = JSON.parse(targetRaw)
+
+    // 使用之前定义的 deepMerge 函数
+    const result = deepMerge(targetData, tempData)
+    
+    fs.writeFileSync(filePath, JSON.stringify(result, null, 2), 'utf-8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
 
 app.whenReady().then(() => {
   // 初始化配置文件

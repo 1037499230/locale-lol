@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveTitleKeys: (data) => ipcRenderer.invoke('save-title-keys', data),
   getTitleKeys: () => ipcRenderer.invoke('get-title-keys'),
   getDesktopPath: () => ipcRenderer.invoke('get-desktop-path'),
+  selectJsonFile: () => ipcRenderer.invoke('select-json-file'),
+  mergeLocaleFile: (tempData, type, filePath) => ipcRenderer.invoke('merge-locale-file', tempData, type, filePath),
 })

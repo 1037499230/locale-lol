@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 
@@ -12,6 +12,9 @@ const valueCol = ref<string>('')
 const headers = ref<string[]>([])
 const jsonData = ref<Record<string, any>>({})
 const sheetNames = ref<string[]>([])
+const showMergeDialog = ref(false)
+const targetType = ref('h5')
+const targetFilePath = ref<string>('') // 改为存储文件路径
 
 /**
  * 处理文件选择
@@ -76,7 +79,7 @@ const loadSheetData = (name: string) => {
 }
 
 /**
- * 生成 JSON 数据
+ * 生成 JSON 数据并进入下一步
  */
 const generateJson = () => {
   if (!workbook.value || !keyCol.value || !valueCol.value) {
@@ -99,6 +102,47 @@ const generateJson = () => {
 
   jsonData.value = result
   ElMessage.success(`成功提取 ${Object.keys(result).length} 条数据`)
+
+  showMergeDialog.value = true
+}
+
+/**
+ * 选择目标 JSON 文件
+ */
+const handleSelectTargetFile = async () => {
+  const path = await window.electronAPI?.selectJsonFile()
+  if (path) {
+    targetFilePath.value = path
+  }
+}
+
+/**
+ * 执行合并操作
+ */
+const handleMerge = async () => {
+  if (!targetFilePath.value) {
+    ElMessage.warning('请先选择目标 JSON 文件')
+    return
+  }
+
+  try {
+    ElMessage.info('正在合并...')
+    const res = await window.electronAPI?.mergeLocaleFile(
+      JSON.stringify(jsonData.value),
+      targetType.value,
+      targetFilePath.value
+    )
+
+    if (res?.success) {
+      ElMessage.success('合并成功！')
+      showMergeDialog.value = false
+      targetFilePath.value = '' // 重置
+    } else {
+      ElMessage.error(res?.error || '合并失败')
+    }
+  } catch (error) {
+    ElMessage.error('操作异常')
+  }
 }
 
 /**
@@ -151,12 +195,31 @@ const downloadJson = () => {
     </div>
 
     <div class="flex gap-2">
-      <el-button type="primary" @click="generateJson" :disabled="!selectedFile">生成预览</el-button>
-      <el-button type="success" @click="downloadJson" :disabled="Object.keys(jsonData).length === 0">下载 JSON</el-button>
+      <el-button type="primary" @click="generateJson" :disabled="!selectedFile">下一步：合并到项目</el-button>
+      <el-button type="success" @click="downloadJson" :disabled="Object.keys(jsonData).length === 0">仅下载 JSON</el-button>
     </div>
 
-    <div v-if="Object.keys(jsonData).length > 0" class="mt-4 p-4 bg-gray-50 rounded border max-h-96 overflow-auto">
-      <pre>{{ JSON.stringify(jsonData, null, 2) }}</pre>
-    </div>
+    <!-- 合并对话框 -->
+    <el-dialog v-model="showMergeDialog" title="合并到多语言文件">
+      <el-form label-width="100px">
+        <el-form-item label="应用类型">
+          <el-select v-model="targetType" placeholder="请选择">
+            <el-option label="H5 端" value="h5" />
+            <el-option label="PC 端 (待开发)" value="pc" disabled />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="目标文件">
+          <el-input v-model="targetFilePath" placeholder="请选择目标 JSON 文件" readonly>
+            <template #append>
+              <el-button @click="handleSelectTargetFile">选择文件</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showMergeDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleMerge">开始合并</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
