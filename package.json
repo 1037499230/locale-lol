@@ -39,8 +39,8 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "build": {
-    "appId": "com.el.app",
-    "productName": "El App",
+    "appId": "com.locale-lol.app",
+    "productName": "Locale LOL",
     "icon": "build/icon.ico",
     "directories": {
       "output": "release"
@@ -59,6 +59,18 @@
         }
       ],
       "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Locale LOL",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "perMachine": true,
+      "allowElevation": true
     }
   }
 }
