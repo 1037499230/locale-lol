@@ -22,5 +22,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLangMap: (type) => ipcRenderer.invoke('get-lang-map', type),
   saveLangMap: (data, type) => ipcRenderer.invoke('save-lang-map', data, type),
   batchAddLocale: (dirPath, excludePattern, targetProperty, objectsToAdd, type) => ipcRenderer.invoke('batch-add-locale', dirPath, excludePattern, targetProperty, objectsToAdd, type),
-  processPcLocales: (localeConfigs, standardCode) => ipcRenderer.invoke('process-pc-locales', localeConfigs, standardCode),
+  processPcLocales: (data, standardCode) => ipcRenderer.invoke('process-pc-locales', data, standardCode),
+  processPcMissingLocales: (data, zhCode, secondRefCode) => ipcRenderer.invoke('process-pc-missing-locales', data, zhCode, secondRefCode),
 })

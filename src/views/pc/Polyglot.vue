@@ -155,8 +155,25 @@ const handleProcessLocales = async ({ standardFile, saveResult }: Interface) => 
 const handleProcessMissing = async ({ standardFile, controlFile, saveResult }: Interface) => {
   try {
     ElMessage.info('正在分析缺失项...')
-    // TODO: 调用 PC 端处理逻辑
-    ElMessage.success('功能开发中...')
+
+    const res = await window.electronAPI?.processPcMissingLocales(
+      JSON.stringify(selectedLocales.value),
+      standardFile,
+      controlFile || undefined
+    )
+
+    if (res?.success && res.results) {
+      const exportResult = await window.electronAPI?.exportMissingExcel(res.results, JSON.stringify({ saveResult, standardFile, controlFile }))
+
+      if (exportResult?.success) {
+        const totalMissing = res.results.reduce((sum, r) => sum + r.count, 0)
+        ElMessage.success(`分析完成！共发现 ${totalMissing} 个缺失项，文件已保存到: ${saveResult}`)
+      } else {
+        ElMessage.error(exportResult?.error || '导出失败')
+      }
+    } else {
+      ElMessage.error(res?.error || '分析失败')
+    }
   } catch (error) {
     ElMessage.error('操作失败')
     console.error('错误:', error)

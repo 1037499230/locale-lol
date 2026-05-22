@@ -3,7 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 const { initLangMapFile, batchAddLocales } = require('./addLocaleProcessor.cjs')
-const { processPcLocales } = require('./pcLocaleProcessor.cjs')
+const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
 
 
 /**
@@ -143,11 +143,19 @@ ipcMain.handle('process-locales', async (event, data, standardFile) => {
   }
 })
 
-ipcMain.handle('process-pc-locales', async (event, localeConfigsStr, standardCode = 'zh') => {
+ipcMain.handle('process-pc-locales', async (event, data, standardCode = 'zh') => {
   try {
-    const localeConfigs = JSON.parse(localeConfigsStr)
-    const result = processPcLocales(localeConfigs, standardCode)
+    const result = processPcLocales(data, standardCode)
     return { success: true, data: result }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('process-pc-missing-locales', async (event, data, zhCode, secondRefCode) => {
+  try {
+    const results = processPcMissingLocales(data, zhCode, secondRefCode)
+    return { success: true, results }
   } catch (error) {
     return { success: false, error: error.message }
   }
