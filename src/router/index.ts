@@ -5,6 +5,10 @@ const routes: RouteRecordRaw[] = [
     path: '/h5/polyglot',
     name: 'h5-polyglot',
     component: () => import('../views/h5/Polyglot.vue')
+  },{
+    path: '/pc/polyglot',
+    name: 'pc-polyglot',
+    component: () => import('../views/pc/Polyglot.vue')
   },
   {
     path: '/system/tableKey',

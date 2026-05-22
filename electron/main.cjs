@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 const { initLangMapFile, batchAddLocales } = require('./addLocaleProcessor.cjs')
+const { processPcLocales } = require('./pcLocaleProcessor.cjs')
 
 
 /**
@@ -138,6 +139,16 @@ ipcMain.handle('process-locales', async (event, data, standardFile) => {
     return { success: true, data: cleanData }
   } catch (error) {
     console.error('处理多语言失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('process-pc-locales', async (event, localeConfigsStr, standardCode = 'zh') => {
+  try {
+    const localeConfigs = JSON.parse(localeConfigsStr)
+    const result = processPcLocales(localeConfigs, standardCode)
+    return { success: true, data: result }
+  } catch (error) {
     return { success: false, error: error.message }
   }
 })
