@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
-const { initLangMapFile, batchAddLocales } = require('./addLocaleProcessor.cjs')
+const { initLangMapFile, batchAddLocales, batchAddLocalesPc } = require('./addLocaleProcessor.cjs')
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
 
 /**
@@ -386,6 +386,15 @@ ipcMain.handle('save-lang-map', (event, dataStr, type = 'h5') => {
 ipcMain.handle('batch-add-locale', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5') => {
   try {
     const result = batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
+    return result
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('batch-add-locale-pc', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'pc') => {
+  try {
+    const result = batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
     return result
   } catch (error) {
     return { success: false, error: error.message }

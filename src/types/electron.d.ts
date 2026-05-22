@@ -46,6 +46,7 @@ declare global {
       getLangMap: (type?: string) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
       saveLangMap: (data: string, type?: string) => Promise<{ success: boolean; error?: string }>
       batchAddLocale: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
+      batchAddLocalePc: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
       processPcLocales: (data: string, standardCode?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>
       processPcMissingLocales: (data: string, zhCode: string, secondRefCode?: string) => Promise<{ success: boolean; results?: Array<{ lang: string; missing: any[]; count: number }>; error?: string }>
     }

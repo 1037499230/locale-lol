@@ -105,7 +105,11 @@ const handleAdd = async () => {
     isProcessing.value = true
     ElMessage.info('正在批量处理...')
 
-    const res = await window.electronAPI?.batchAddLocale(
+    const apiCall = targetType.value === 'pc'
+      ? window.electronAPI?.batchAddLocalePc
+      : window.electronAPI?.batchAddLocale
+
+    const res = await apiCall(
       config.value.directoryPath,
       config.value.excludePattern,
       config.value.targetProperty,
@@ -141,7 +145,7 @@ onMounted(() => {
       <el-form-item label="新增哪个">
         <el-radio-group v-model="targetType">
           <el-radio label="h5">H5 端</el-radio>
-          <el-radio label="pc" disabled>PC 端</el-radio>
+          <el-radio label="pc">PC 端</el-radio>
         </el-radio-group>
       </el-form-item>
 
