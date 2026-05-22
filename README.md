@@ -8,12 +8,38 @@
 
 ## ✨ 核心功能
 
-| 功能模块 | 说明 |
-|----------|------|
-| **H5多语言工具** | 合并标准文件与 uni-app 文件，导出对照表或筛选缺失项 |
-| **批量新增词条** | 通过 JSON 模板批量添加多语言到所有语言文件，支持 H5/PC 切换 |
-| **表格转JSON** | 从 Excel 提取指定列数据生成 JSON，并直接合并到项目文件 |
-| **表格键值管理** | 持久化管理表格列名映射配置，方便后续使用 |
+| 功能模块 | H5 端 (JSON) | PC 端 (TS) | 说明 |
+|----------|-------------|-----------|------|
+| **多语言工具** | ✅ | ✅ | 合并标准文件与 uni-app 文件，导出对照表或筛选缺失项 |
+| **批量新增词条** | ✅ | ✅ | 通过 JSON 模板批量添加多语言到所有语言文件，支持 H5/PC 切换 |
+| **表格转JSON** | ✅ | ✅ | 从 Excel 提取指定列数据生成 JSON，并直接合并到项目文件 |
+| **表格键值管理** | ✅ | ✅ | 持久化管理表格列名映射配置，方便后续使用 |
+
+### 📋 功能详情
+
+#### 1. H5/PC 多语言工具
+- 选择源文件夹，自动识别语言文件
+- 支持全选/多选操作
+- 导出多语言对照表到 Excel
+- 筛选缺失项，生成对比报告
+- 支持第二对照文件（方便翻译参考）
+
+#### 2. 批量新增词条
+- 通过 JSON 模板定义要添加的词条
+- 支持嵌套属性路径（如 `account.withdrawal`）
+- 自动识别文件语言，提取对应翻译
+- 支持 H5（JSON）和 PC（TS）两种文件格式
+
+#### 3. 表格转 JSON
+- 上传 Excel 文件，自动解析表头
+- 选择键列和值列，提取数据
+- 支持合并到 H5（JSON）或 PC（TS）文件
+- 深度合并，保留原有文件结构
+
+#### 4. 表格键值管理
+- 自定义 Excel 导出时的列名映射
+- 持久化配置，重启不丢失
+- 支持多语言标题显示
 
 ## 🚀 快速开始
 
@@ -24,19 +50,19 @@
 
 ### 安装依赖
 
-```bash
+``` bash
 npm install
 ```
 
 ### 开发模式
 
-```bash
+``` bash
 npm run electron:dev
 ```
 
 ### 打包发布
 
-```bash
+``` bash
 npm run electron:build
 ```
 
@@ -49,11 +75,13 @@ npm run electron:build
 │   ├── main.cjs               # 主入口 + IPC 路由
 │   ├── preload.cjs            # 预加载脚本
 │   ├── localeProcessor.cjs    # H5多语言处理逻辑
+│   ├── pcLocaleProcessor.cjs  # pc多语言处理逻辑
 │   └── addLocaleProcessor.cjs # 批量新增词条逻辑
 │
 ├── src/                       # Vue 渲染进程
 │   ├── views/                 # 页面组件
 │   │   ├── h5/                # H5多语言工具
+│   │   ├── pc/                # PC多语言工具
 │   │   ├── add/               # 批量新增词条
 │   │   ├── excel/             # 表格转JSON
 │   │   └── system/            # 系统配置管理
@@ -99,6 +127,25 @@ npm run electron:build
 - 渲染进程使用 ES Module
 - IPC 通信统一使用 JSON 字符串传输
 - 代码注释使用块注释，禁止行尾注释
+
+## 🔄 IPC 接口清单
+| 接口名 | 参数 | 说明 |
+|--------|------|------|
+| `selectFolder` | - | 选择文件夹 |
+| `getFolderFiles` | folderPath | 获取文件夹内文件列表 |
+| `processLocales` | data, standardFile | 处理 H5 多语言合并 |
+| `processPcLocales` | data, standardCode | 处理 PC 多语言合并 |
+| `processMissingLocales` | data, zhCode, secondRefCode | 处理 H5 缺失项对比 |
+| `processPcMissingLocales` | data, zhCode, secondRefCode | 处理 PC 缺失项对比 |
+| `exportExcelToFolder` | data, folderPath | 导出 Excel 到指定目录 |
+| `exportMissingExcel` | results, folderPath | 导出缺失项 Excel |
+| `mergeLocaleFile` | tempData, type, filePath | 合并数据到目标文件 |
+| `batchAddLocale` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（H5） |
+| `batchAddLocalePc` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（PC） |
+| `saveTitleKeys` | data | 保存表格键值配置 |
+| `getTitleKeys` | - | 获取表格键值配置 |
+| `getLangMap` | type | 获取语言映射配置 |
+| `saveLangMap` | data, type | 保存语言映射配置 |
 
 ## 🤝 贡献指南
 
