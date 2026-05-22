@@ -14,7 +14,7 @@ const jsonData = ref<Record<string, any>>({})
 const sheetNames = ref<string[]>([])
 const showMergeDialog = ref(false)
 const targetType = ref('h5')
-const targetFilePath = ref<string>('') // 改为存储文件路径
+const targetFilePath = ref<string>('')
 
 /**
  * 处理文件选择
@@ -107,10 +107,14 @@ const generateJson = () => {
 }
 
 /**
- * 选择目标 JSON 文件
+ * 选择目标文件（JSON 或 TS）
  */
 const handleSelectTargetFile = async () => {
-  const path = await window.electronAPI?.selectJsonFile()
+  const filters = targetType.value === 'pc'
+    ? [{ name: 'TypeScript Files', extensions: ['ts'] }]
+    : [{ name: 'JSON Files', extensions: ['json'] }]
+
+  const path = await window.electronAPI?.selectTargetFile(filters)
   if (path) {
     targetFilePath.value = path
   }
@@ -121,7 +125,7 @@ const handleSelectTargetFile = async () => {
  */
 const handleMerge = async () => {
   if (!targetFilePath.value) {
-    ElMessage.warning('请先选择目标 JSON 文件')
+    ElMessage.warning('请先选择目标文件')
     return
   }
 
@@ -136,7 +140,7 @@ const handleMerge = async () => {
     if (res?.success) {
       ElMessage.success('合并成功！')
       showMergeDialog.value = false
-      targetFilePath.value = '' // 重置
+      targetFilePath.value = ''
     } else {
       ElMessage.error(res?.error || '合并失败')
     }
@@ -205,11 +209,15 @@ const downloadJson = () => {
         <el-form-item label="应用类型">
           <el-select v-model="targetType" placeholder="请选择">
             <el-option label="H5 端" value="h5" />
-            <el-option label="PC 端 (待开发)" value="pc" disabled />
+            <el-option label="PC 端" value="pc" />
           </el-select>
         </el-form-item>
         <el-form-item label="目标文件">
-          <el-input v-model="targetFilePath" placeholder="请选择目标 JSON 文件" readonly>
+          <el-input
+            v-model="targetFilePath"
+            :placeholder="targetType === 'pc' ? '请选择目标 TS 文件' : '请选择目标 JSON 文件'"
+            readonly
+          >
             <template #append>
               <el-button @click="handleSelectTargetFile">选择文件</el-button>
             </template>
