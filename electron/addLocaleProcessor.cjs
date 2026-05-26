@@ -274,13 +274,14 @@ function objectToTsString(obj, indent = 0) {
   const nextIndentStr = '  '.repeat(indent + 1)
 
   if (typeof obj === 'string') {
-    return `"${obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
+    // 增强转义：处理 \n, \r, \\, "
+    return `"${obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
   }
 
   const entries = Object.entries(obj)
   const entriesStr = entries.map(([key, value]) => {
     const formattedKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`
-    const valueStr = typeof value === 'string' ? `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"` : objectToTsString(value, indent + 1)
+    const valueStr = typeof value === 'string' ? `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"` : objectToTsString(value, indent + 1)
     return `${nextIndentStr}${formattedKey}: ${valueStr}`
   }).join(',\n')
 
@@ -446,9 +447,84 @@ function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type
   return { success: true, message: `已成功处理 ${processedCount} 个文件` }
 }
 
+/**
+ * 批量合并 Excel 数据到 Admin 端 TS 文件夹
+ */
+function mergeAdminLocales(localesPath, tempData) {
+  if (!fs.existsSync(localesPath)) {
+    throw new Error(`目标文件夹不存在: ${localesPath}`)
+  }
+
+  // 智能识别：如果目录下全是文件夹，则遍历；否则直接处理当前目录
+  const items = fs.readdirSync(localesPath)
+  const isRootLocales = items.length > 0 && items.every(item => {
+    const itemPath = path.join(localesPath, item)
+    return fs.statSync(itemPath).isDirectory()
+  })
+
+  const foldersToProcess = isRootLocales 
+    ? items.map(item => ({ name: item, path: path.join(localesPath, item) }))
+    : [{ name: path.basename(localesPath), path: localesPath }]
+
+  for (const folder of foldersToProcess) {
+    const currentLangPath = folder.path
+    
+    for (const [fullKey, value] of Object.entries(tempData)) {
+      const keys = fullKey.split('.')
+      let targetDir = currentLangPath
+      let targetFile = ''
+      let propertyPath = []
+      let found = false
+
+      // 逐层解析路径：先判文件，再进文件夹
+      for (let i = 0; i < keys.length; i++) {
+        const part = keys[i]
+        const tsPath = path.join(targetDir, `${part}.ts`)
+        const dirPath = path.join(targetDir, part)
+
+        if (fs.existsSync(tsPath)) {
+          targetFile = part
+          propertyPath = keys.slice(i + 1)
+          found = true
+          break 
+        } else if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+          targetDir = dirPath
+        } else {
+          break
+        }
+      }
+
+      if (found && targetFile && propertyPath.length > 0) {
+        const tsFilePath = path.join(targetDir, `${targetFile}.ts`)
+        
+        const fileContent = fs.readFileSync(tsFilePath, 'utf-8')
+        const jsonString = fileContent.replace('export default', '').trim().replace(/;$/, '')
+        let targetData
+        try {
+          targetData = new Function(`return ${jsonString}`)()
+        } catch (e) { continue }
+
+        // 深度赋值
+        let currentObj = targetData
+        for (let j = 0; j < propertyPath.length - 1; j++) {
+          const k = propertyPath[j]
+          if (!currentObj[k]) currentObj[k] = {}
+          currentObj = currentObj[k]
+        }
+        
+        currentObj[propertyPath[propertyPath.length - 1]] = value
+
+        const formattedObject = objectToTsString(targetData)
+        fs.writeFileSync(tsFilePath, `export default ${formattedObject};\n`, 'utf-8')
+      }
+    }
+  }
+}
+
 module.exports = {
   initLangMapFile,
   batchAddLocales,
   batchAddLocalesPc,
-  batchAddLocalesAdmin
+  batchAddLocalesAdmin,
+  mergeAdminLocales
 }
