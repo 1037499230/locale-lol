@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
-const targetType = ref('h5') // 新增：目标类型选择
+const targetType = ref('h5')
 const config = ref({
   directoryPath: '',
   excludePattern: 'uni-app',
@@ -105,21 +105,43 @@ const handleAdd = async () => {
     isProcessing.value = true
     ElMessage.info('正在批量处理...')
 
-    const apiCall = targetType.value === 'pc'
-      ? window.electronAPI?.batchAddLocalePc
-      : window.electronAPI?.batchAddLocale
+    let apiCall: any
+    let params
 
-    const res = await apiCall(
-      config.value.directoryPath,
-      config.value.excludePattern,
-      config.value.targetProperty,
-      JSON.stringify(objects),
-      targetType.value
-    )
+    if (targetType.value === 'pc') {
+      apiCall = window.electronAPI?.batchAddLocalePc
+      params = [
+        config.value.directoryPath,
+        config.value.excludePattern,
+        config.value.targetProperty,
+        JSON.stringify(objects),
+        targetType.value
+      ]
+    } else if (targetType.value === 'admin') {
+      apiCall = window.electronAPI?.batchAddLocaleAdmin
+      params = [
+        config.value.directoryPath,
+        config.value.targetProperty,
+        JSON.stringify(objects),
+        targetType.value
+      ]
+    } else {
+      apiCall = window.electronAPI?.batchAddLocale
+      params = [
+        config.value.directoryPath,
+        config.value.excludePattern,
+        config.value.targetProperty,
+        JSON.stringify(objects),
+        targetType.value
+      ]
+    }
+
+    const res = await apiCall(...params)
 
     if (res?.success) {
       ElMessage.success(`处理完成！${res.message}`)
     } else {
+      console.error(res)
       ElMessage.error(res?.error || '处理失败')
     }
   } catch (error: any) {
@@ -146,6 +168,7 @@ onMounted(() => {
         <el-radio-group v-model="targetType">
           <el-radio label="h5">H5 端</el-radio>
           <el-radio label="pc">PC 端</el-radio>
+          <el-radio label="admin">Admin 端</el-radio>
         </el-radio-group>
       </el-form-item>
 
@@ -157,12 +180,12 @@ onMounted(() => {
         </el-input>
       </el-form-item>
 
-      <el-form-item label="排除关键词">
+      <el-form-item v-if="targetType !== 'admin'" label="排除关键词">
         <el-input v-model="config.excludePattern" placeholder="例如: uni-app" />
       </el-form-item>
 
       <el-form-item label="目标属性路径">
-        <el-input v-model="config.targetProperty" placeholder="例如: common 或 common.buttons" />
+        <el-input v-model="config.targetProperty" :placeholder="targetType === 'admin' ? '例如: user.login（留空则直接在语言根目录查找）' : '例如: common 或 common.buttons'" />
       </el-form-item>
 
       <el-form-item label="新增对象 (JSON)">

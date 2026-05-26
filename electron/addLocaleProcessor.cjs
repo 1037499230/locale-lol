@@ -71,6 +71,19 @@ const DEFAULT_LANG_MAP_PC = {
 }
 
 /**
+ * Admin 端默认的语言映射配置
+ */
+const DEFAULT_LANG_MAP_ADMIN = {
+  "en": "en",
+  "es": "es",
+  "fr": "fr",
+  "kk": "kk",
+  "mn": "mn",
+  "ru": "ru",
+  "zh": "zh"
+}
+
+/**
  * 获取语言映射文件的完整路径
  */
 function getLangMapPath(type = 'h5') {
@@ -86,6 +99,8 @@ function initLangMapFile(type = 'h5') {
     try {
       if (type === 'pc') {
         fs.writeFileSync(filePath, JSON.stringify(DEFAULT_LANG_MAP_PC, null, 2), 'utf8')
+      } else if (type === 'admin') {
+        fs.writeFileSync(filePath, JSON.stringify(DEFAULT_LANG_MAP_ADMIN, null, 2), 'utf8')
       } else {
         fs.writeFileSync(filePath, JSON.stringify(DEFAULT_LANG_MAP, null, 2), 'utf8')
       }
@@ -166,12 +181,30 @@ function batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddSt
 }
 
 /**
- * 读取并解析 TS 文件
+ * 读取并解析 TS 文件（优化版）
  */
 function readTsFile(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8')
-  const jsonContent = content.replace('export default', '').trim().replace(/;$/, '')
-  return new Function(`return ${jsonContent}`)()
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    // 清理注释，防止干扰解析
+    let cleanContent = content.replace(/\/\*[\s\S]*?\*\//g, '')
+    cleanContent = cleanContent.replace(/\/\/.*$/gm, '')
+    
+    // 提取 export default 后面的对象
+    const match = cleanContent.match(/export\s+default\s+({[\s\S]*})\s*;?\s*$/)
+    if (match && match[1]) {
+      try {
+        return new Function(`return ${match[1]}`)()
+      } catch (e) {
+        console.error(` TS 解析失败 ${filePath}:`, e.message)
+        return {}
+      }
+    }
+    return {}
+  } catch (e) {
+    console.error(`🚫 读取文件失败 ${filePath}:`, e.message)
+    return {}
+  }
 }
 
 /**
@@ -324,8 +357,98 @@ function batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAdd
   return { success: true, message: `已成功处理 ${processedCount} 个文件` }
 }
 
+/**
+ * 批量添加多语言词条到 Admin 端 TS 文件（嵌套结构）
+ */
+function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type = 'admin') {
+  const langMapPath = path.join(app.getPath('userData'), `langMap-${type}.json`)
+  let languages = {}
+  if (fs.existsSync(langMapPath)) {
+    languages = JSON.parse(fs.readFileSync(langMapPath, 'utf8'))
+  } else {
+    languages = DEFAULT_LANG_MAP_ADMIN
+  }
+
+  const objectsToAdd = JSON.parse(objectsToAddStr)
+  const langFolders = fs.readdirSync(localesPath).filter(item => {
+    const itemPath = path.join(localesPath, item)
+    return fs.statSync(itemPath).isDirectory()
+  })
+
+  let processedCount = 0
+  for (const langFolder of langFolders) {
+    const langCode = langFolder
+    const langPath = path.join(localesPath, langFolder)
+
+    // 1. 确定目标操作目录
+    let targetDir = langPath
+    
+    // 如果 targetProperty 不为空且去除空格后仍有内容，才视为子目录路径
+    if (targetProperty && targetProperty.trim() !== '') {
+      const folders = targetProperty.split('.')
+      for (const folder of folders) {
+        targetDir = path.join(targetDir, folder)
+        if (!fs.existsSync(targetDir)) {
+          console.warn(`⚠️ 路径不存在: ${targetDir}，跳过语言 ${langFolder}`)
+          targetDir = null
+          break
+        }
+      }
+    }
+
+    // 2. 在该目录下查找 .ts 文件
+    if (targetDir && fs.existsSync(targetDir)) {
+      const tsFiles = fs.readdirSync(targetDir).filter(f => f.endsWith('.ts'))
+
+      for (const tsFile of tsFiles) {
+        const tsFilePath = path.join(targetDir, tsFile)
+        const tsData = readTsFile(tsFilePath)
+        const fileName = path.basename(tsFile, '.ts')
+
+        // 3. 遍历用户配置，匹配文件名
+        for (const [keyPath, translations] of Object.entries(objectsToAdd)) {
+          const keys = keyPath.split('.')
+          const fileKey = keys[0] // 配置的第一个词作为文件名
+
+          if (fileKey !== fileName) continue
+
+          // 获取属性路径（去掉文件名）
+          const propertyPath = keys.slice(1)
+          if (propertyPath.length === 0) continue
+
+          const fullPropertyKey = propertyPath.join('.')
+          const translation = translations[langCode] || translations['zh'] || ''
+
+          // 4. 修改属性值
+          if (tsData[fullPropertyKey] !== undefined) {
+            tsData[fullPropertyKey] = translation
+          } else {
+            let currentObj = tsData
+            for (let i = 0; i < propertyPath.length - 1; i++) {
+              const k = propertyPath[i]
+              if (!currentObj[k]) currentObj[k] = {}
+              currentObj = currentObj[k]
+            }
+            const lastKey = propertyPath[propertyPath.length - 1]
+            currentObj[lastKey] = translation
+          }
+        }
+
+        // 5. 写回文件
+        const formattedObject = objectToTsString(tsData)
+        const updatedData = `export default ${formattedObject};\n`
+        fs.writeFileSync(tsFilePath, updatedData, 'utf8')
+        processedCount++
+      }
+    }
+  }
+
+  return { success: true, message: `已成功处理 ${processedCount} 个文件` }
+}
+
 module.exports = {
   initLangMapFile,
   batchAddLocales,
-  batchAddLocalesPc
+  batchAddLocalesPc,
+  batchAddLocalesAdmin
 }

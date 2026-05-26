@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
-const { initLangMapFile, batchAddLocales, batchAddLocalesPc } = require('./addLocaleProcessor.cjs')
+const { initLangMapFile, batchAddLocales, batchAddLocalesPc, batchAddLocalesAdmin } = require('./addLocaleProcessor.cjs')
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
 const { processAdminLocales, extractAndGenerateJson } = require('./adminLocaleProcessor.cjs')
 
@@ -345,7 +345,8 @@ app.whenReady().then(() => {
   // 初始化 H5 和 PC 的语言映射文件
   initLangMapFile('h5')
   initLangMapFile('pc')
-  
+  initLangMapFile('admin')
+
   createWindow()
 
   app.on('activate', () => {
@@ -398,6 +399,16 @@ ipcMain.handle('batch-add-locale-pc', (event, dirPath, excludePattern, targetPro
     const result = batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
     return result
   } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('batch-add-locale-admin', (event, localesPath, targetProperty, objectsToAddStr, type = 'admin') => {
+  try {
+    const result = batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type)
+    return result
+  } catch (error) {
+    console.error('批量添加语言失败:', error)
     return { success: false, error: error.message }
   }
 })
