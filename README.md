@@ -11,7 +11,7 @@
 | 功能模块 | H5 端 (JSON) | PC 端 (TS) | Admin 端 (TS→JSON) | 说明 |
 |----------|-------------|-----------|-------------------|------|
 | **多语言工具** | ✅ | ✅ | ✅ | 提取/合并多语言文件，导出对照表或筛选缺失项 |
-| **批量新增词条** | ✅ | ✅ | - | 通过 JSON 模板批量添加多语言到所有语言文件 |
+| **批量新增词条** | ✅ | ✅ | ✅ | 通过 JSON 模板批量添加多语言到所有语言文件 |
 | **表格转JSON** | ✅ | ✅ | - | 从 Excel 提取数据生成 JSON，并直接合并到项目文件 |
 | **表格键值管理** | ✅ | ✅ | ✅ | 持久化管理表格列名映射配置 |
 
@@ -23,13 +23,13 @@
 - 导出多语言对照表到 Excel
 - 筛选缺失项，生成对比报告
 - 支持第二对照文件（方便翻译参考）
-- **Admin 端特殊处理**：先从嵌套 TS 结构提取生成 JSON，再复用 H5 逻辑
+- **Admin 端特殊处理**：先从嵌套 TS 结构提取生成 JSON，再复用 H5 逻辑进行对比导出
 
 #### 2. 批量新增词条
 - 通过 JSON 模板定义要添加的词条
 - 支持嵌套属性路径（如 `account.withdrawal`）
 - 自动识别文件语言，提取对应翻译
-- 支持 H5（JSON）和 PC（TS）两种文件格式
+- **Admin 端适配**：支持按文件名定位（如 `common.submit.login`），自动匹配目标 TS 文件并合并
 
 #### 3. 表格转 JSON
 - 上传 Excel 文件，自动解析表头
@@ -114,6 +114,7 @@ npm run electron:build
 | `titleKeys.json` | 表格列名映射配置 |
 | `langMap-h5.json` | H5 语言代码映射 |
 | `langMap-pc.json` | PC 语言代码映射 |
+| `langMap-admin.json` | Admin 语言代码映射 |
 
 ## 🛠️ 技术栈
 
@@ -145,6 +146,7 @@ npm run electron:build
 | `mergeLocaleFile` | tempData, type, filePath | 合并数据到目标文件 |
 | `batchAddLocale` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（H5） |
 | `batchAddLocalePc` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（PC） |
+| `batchAddLocaleAdmin` | localesPath, targetProperty, objectsToAdd, type | 批量添加词条（Admin） |
 | `getAdminLocales` | localesPath | 获取 Admin 语言包列表 |
 | `extractAdminLocales` | localesPath | 提取 Admin TS 结构生成 JSON |
 | `saveTitleKeys` | data | 保存表格键值配置 |
