@@ -53,6 +53,28 @@ function deepMerge(target, source) {
 }
 
 /**
+ * 对象转 TS 格式字符串（用于 Admin 合并）
+ */
+function objectToTsString(obj, indent = 0) {
+  const indentStr = '  '.repeat(indent)
+  const nextIndentStr = '  '.repeat(indent + 1)
+
+  if (typeof obj === 'string') {
+    // 确保所有特殊字符都被转义，并保持在同一行
+    return `"${obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
+  }
+
+  const entries = Object.entries(obj)
+  const entriesStr = entries.map(([key, value]) => {
+    const formattedKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`
+    const valueStr = typeof value === 'string' ? `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"` : objectToTsString(value, indent + 1)
+    return `${nextIndentStr}${formattedKey}: ${valueStr}`
+  }).join(',\n')
+
+  return `{\n${entriesStr}\n${indentStr}}`
+}
+
+/**
  * 默认的 TitleKeys 配置数据
  */
 const DEFAULT_TITLE_KEYS = {
@@ -311,11 +333,87 @@ ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) =
   try {
     const tempData = JSON.parse(tempDataStr)
     
-    if (!fs.existsSync(filePath)) {
-      return { success: false, error: `目标文件不存在: ${filePath}` }
-    }
+    if (type === 'admin') {
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: `目标文件夹不存在: ${filePath}` }
+      }
 
-    if (type === 'pc') {
+      // 注意：这里不再遍历 langFolders，而是直接以 filePath 作为当前语言的根目录
+      // 如果用户选的是 locales/es，那 filePath 就是 es 的路径
+      const langPath = filePath 
+      
+      // 为了兼容用户可能选了 locales 根目录的情况，我们判断一下：
+      // 如果 filePath 下全是文件夹（如 zh, en），则遍历；否则直接处理当前目录
+      const items = fs.readdirSync(langPath)
+      const isRootLocales = items.length > 0 && items.every(item => {
+        const itemPath = path.join(langPath, item)
+        return fs.statSync(itemPath).isDirectory()
+      })
+
+      const foldersToProcess = isRootLocales 
+        ? items.map(item => ({ name: item, path: path.join(langPath, item) }))
+        : [{ name: path.basename(langPath), path: langPath }]
+
+      for (const folder of foldersToProcess) {
+        const currentLangPath = folder.path
+        
+        for (const [fullKey, value] of Object.entries(tempData)) {
+          const keys = fullKey.split('.')
+          let targetDir = currentLangPath
+          let targetFile = ''
+          let propertyPath = []
+          let found = false
+
+          // 逐层解析：对每一个属性名都进行判断
+          for (let i = 0; i < keys.length; i++) {
+            const part = keys[i]
+            const tsPath = path.join(targetDir, `${part}.ts`)
+            const dirPath = path.join(targetDir, part)
+
+            if (fs.existsSync(tsPath)) {
+              // 1. 是文件：记录下来，准备处理剩下的部分作为属性
+              targetFile = part
+              propertyPath = keys.slice(i + 1)
+              found = true
+              break 
+            } else if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+              // 2. 是文件夹：进入该文件夹，继续判断下一个词
+              targetDir = dirPath
+            } else {
+              // 3. 既不是文件也不是文件夹，路径无效，跳出
+              break
+            }
+          }
+
+          if (found && targetFile && propertyPath.length > 0) {
+            const tsFilePath = path.join(targetDir, `${targetFile}.ts`)
+            
+            const fileContent = fs.readFileSync(tsFilePath, 'utf-8')
+            const jsonString = fileContent.replace('export default', '').trim().replace(/;$/, '')
+            let targetData
+            try {
+              targetData = new Function(`return ${jsonString}`)()
+            } catch (e) { continue }
+
+            // 深度赋值
+            let currentObj = targetData
+            for (let j = 0; j < propertyPath.length - 1; j++) {
+              const k = propertyPath[j]
+              if (!currentObj[k]) currentObj[k] = {}
+              currentObj = currentObj[k]
+            }
+            
+            const lastKey = propertyPath[propertyPath.length - 1]
+            // ✅ 关键改动：写入前确保值是字符串且换行符已转义
+            // 如果 value 里包含物理换行，这里会自动被 objectToTsString 处理
+            currentObj[lastKey] = value
+
+            const formattedObject = objectToTsString(targetData)
+            fs.writeFileSync(tsFilePath, `export default ${formattedObject};\n`, 'utf-8')
+          }
+        }
+      }
+    } else if (type === 'pc') {
       // PC 端：读取 TS 文件，合并后写回 TS 格式
       const fileContent = fs.readFileSync(filePath, 'utf-8')
       const jsonString = fileContent.replace('export default', '').trim()

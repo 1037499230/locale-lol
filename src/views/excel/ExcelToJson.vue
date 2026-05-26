@@ -110,6 +110,12 @@ const generateJson = () => {
  * 选择目标文件（JSON 或 TS）
  */
 const handleSelectTargetFile = async () => {
+  if (targetType.value === 'admin') {
+    const path = await window.electronAPI?.selectFolder()
+    if (path) targetFilePath.value = path
+    return
+  }
+
   const filters = targetType.value === 'pc'
     ? [{ name: 'TypeScript Files', extensions: ['ts'] }]
     : [{ name: 'JSON Files', extensions: ['json'] }]
@@ -210,16 +216,16 @@ const downloadJson = () => {
           <el-select v-model="targetType" placeholder="请选择">
             <el-option label="H5 端" value="h5" />
             <el-option label="PC 端" value="pc" />
+            <el-option label="Admin 端" value="admin" />
           </el-select>
         </el-form-item>
-        <el-form-item label="目标文件">
+        <el-form-item label="目标位置">
           <el-input
             v-model="targetFilePath"
-            :placeholder="targetType === 'pc' ? '请选择目标 TS 文件' : '请选择目标 JSON 文件'"
-            readonly
+            :placeholder="targetType === 'admin' ? '请选择 Admin 语言文件夹' : (targetType === 'pc' ? '请选择目标 TS 文件' : '请选择目标 JSON 文件')"
           >
             <template #append>
-              <el-button @click="handleSelectTargetFile">选择文件</el-button>
+              <el-button @click="handleSelectTargetFile">{{ targetType === 'admin' ? '选择文件夹' : '选择文件' }}</el-button>
             </template>
           </el-input>
         </el-form-item>
