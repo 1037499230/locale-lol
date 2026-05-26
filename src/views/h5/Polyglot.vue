@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref} from 'vue'
 import { ElMessage } from 'element-plus'
-import SelectFileDialog, {type Interface} from "@/views/h5/components/SelectFileDialog.vue";
+import SelectFileDialog, {type Interface} from "@/components/SelectFileDialog.vue";
 
 // 当前选择的文件夹路径
 const folderPath = ref<string>('')
