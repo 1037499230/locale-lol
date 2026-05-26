@@ -25,6 +25,11 @@ const routes: RouteRecordRaw[] = [
     name: 'excel-to-json',
     component: () => import('../views/excel/ExcelToJson.vue')
   },
+  {
+    path: '/admin/polyglot',
+    name: 'admin-polyglot',
+    component: () => import('../views/admin/Polyglot.vue')
+  },
 ]
 
 const router = createRouter({

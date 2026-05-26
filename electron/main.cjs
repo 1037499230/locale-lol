@@ -4,6 +4,7 @@ const fs = require('fs')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 const { initLangMapFile, batchAddLocales, batchAddLocalesPc } = require('./addLocaleProcessor.cjs')
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
+const { processAdminLocales, extractAndGenerateJson } = require('./adminLocaleProcessor.cjs')
 
 /**
  * 将扁平化的对象转换为嵌套对象
@@ -396,6 +397,24 @@ ipcMain.handle('batch-add-locale-pc', (event, dirPath, excludePattern, targetPro
   try {
     const result = batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
     return result
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('get-admin-locales', async (event, localesPath) => {
+  try {
+    const languages = processAdminLocales(localesPath)
+    return { success: true, languages }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('extract-admin-locales', async (event, localesPath) => {
+  try {
+    extractAndGenerateJson(localesPath)
+    return { success: true }
   } catch (error) {
     return { success: false, error: error.message }
   }
