@@ -8,11 +8,11 @@
 
 ## ✨ 核心功能
 
-| 功能模块 | H5 端 (JSON) | PC 端 (TS) | Admin 端 (TS→JSON) | 说明 |
+| 功能模块 | H5 端 (JSON) | PC 端 (TS) | Admin 端 (TS 嵌套) | 说明 |
 |----------|-------------|-----------|-------------------|------|
 | **多语言工具** | ✅ | ✅ | ✅ | 提取/合并多语言文件，导出对照表或筛选缺失项 |
 | **批量新增词条** | ✅ | ✅ | ✅ | 通过 JSON 模板批量添加多语言到所有语言文件 |
-| **表格转JSON** | ✅ | ✅ | - | 从 Excel 提取数据生成 JSON，并直接合并到项目文件 |
+| **表格转JSON** | ✅ | ✅ | ✅ | 从 Excel 提取数据生成 JSON，并智能合并到项目文件 |
 | **表格键值管理** | ✅ | ✅ | ✅ | 持久化管理表格列名映射配置 |
 
 ### 📋 功能详情
@@ -31,11 +31,11 @@
 - 自动识别文件语言，提取对应翻译
 - **Admin 端适配**：支持按文件名定位（如 `common.submit.login`），自动匹配目标 TS 文件并合并
 
-#### 3. 表格转 JSON
+#### 3. 表格转 JSON / 智能合并
 - 上传 Excel 文件，自动解析表头
 - 选择键列和值列，提取数据
-- 支持合并到 H5（JSON）或 PC（TS）文件
-- 深度合并，保留原有文件结构
+- **H5/PC 端**：支持合并到指定的 JSON 或 TS 文件
+- **Admin 端**：支持选择语言文件夹，根据 Key 的路径结构（如 `module.sub.file.prop`）自动定位文件并写入
 
 #### 4. 表格键值管理
 - 自定义 Excel 导出时的列名映射
@@ -143,7 +143,7 @@ npm run electron:build
 | `processPcMissingLocales` | data, zhCode, secondRefCode | 处理 PC 缺失项对比 |
 | `exportExcelToFolder` | data, folderPath | 导出 Excel 到指定目录 |
 | `exportMissingExcel` | results, folderPath | 导出缺失项 Excel |
-| `mergeLocaleFile` | tempData, type, filePath | 合并数据到目标文件 |
+| `mergeLocaleFile` | tempData, type, filePath | 智能合并数据到目标文件/文件夹 |
 | `batchAddLocale` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（H5） |
 | `batchAddLocalePc` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（PC） |
 | `batchAddLocaleAdmin` | localesPath, targetProperty, objectsToAdd, type | 批量添加词条（Admin） |
@@ -153,7 +153,6 @@ npm run electron:build
 | `getTitleKeys` | - | 获取表格键值配置 |
 | `getLangMap` | type | 获取语言映射配置 |
 | `saveLangMap` | data, type | 保存语言映射配置 |
-
 ## 🤝 贡献指南
 
 欢迎提交 Issue 和 PR！
