@@ -381,25 +381,71 @@ function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type
     const langCode = langFolder
     const langPath = path.join(localesPath, langFolder)
 
-    // 1. 确定目标操作目录
+    // 1. 确定目标操作目录和可能的目标文件
     let targetDir = langPath
-    
-    // 如果 targetProperty 不为空且去除空格后仍有内容，才视为子目录路径
+    let specificFileName = null // 如果最后一段是文件名，则记录（不含.ts）
+
     if (targetProperty && targetProperty.trim() !== '') {
-      const folders = targetProperty.split('.')
-      for (const folder of folders) {
-        targetDir = path.join(targetDir, folder)
-        if (!fs.existsSync(targetDir)) {
-          console.warn(`⚠️ 路径不存在: ${targetDir}，跳过语言 ${langFolder}`)
-          targetDir = null
+      const segments = targetProperty.split('.')
+
+      // ① 先尝试将所有段都作为目录路径
+      let allDirsExist = true
+      let dirPath = langPath
+      for (const segment of segments) {
+        dirPath = path.join(dirPath, segment)
+        if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+          allDirsExist = false
           break
+        }
+      }
+
+      if (allDirsExist) {
+        // 所有段都是目录，行为与原来一致
+        targetDir = dirPath
+      } else {
+        // ② 最后一段可能是文件名，尝试将除最后一段外的都作为目录
+        const dirSegments = segments.slice(0, -1)
+        const lastSegment = segments[segments.length - 1]
+
+        let parentDir = langPath
+        let parentExists = true
+        for (const segment of dirSegments) {
+          parentDir = path.join(parentDir, segment)
+          if (!fs.existsSync(parentDir) || !fs.statSync(parentDir).isDirectory()) {
+            parentExists = false
+            break
+          }
+        }
+
+        if (parentExists) {
+          // 检查对应的 .ts 文件是否存在
+          const potentialFile = path.join(parentDir, `${lastSegment}.ts`)
+          if (fs.existsSync(potentialFile) && fs.statSync(potentialFile).isFile()) {
+            targetDir = parentDir
+            specificFileName = lastSegment
+          } else {
+            console.warn(`⚠️ 路径不存在: ${path.join(parentDir, lastSegment)}，跳过语言${langFolder}`)
+            targetDir = null
+          }
+        } else {
+          console.warn(`⚠️ 路径不存在，跳过语言 ${langFolder}`)
+          targetDir = null
         }
       }
     }
 
     // 2. 在该目录下查找 .ts 文件
     if (targetDir && fs.existsSync(targetDir)) {
-      const tsFiles = fs.readdirSync(targetDir).filter(f => f.endsWith('.ts'))
+      let tsFiles = fs.readdirSync(targetDir).filter(f => f.endsWith('.ts'))
+
+      // 如果指定了目标文件，只处理该文件
+      if (specificFileName) {
+        tsFiles = tsFiles.filter(f => path.basename(f, '.ts') === specificFileName)
+        if (tsFiles.length === 0) {
+          console.warn(`⚠️ 文件 ${specificFileName}.ts 不存在，跳过语言${langFolder}`)
+          continue
+        }
+      }
 
       for (const tsFile of tsFiles) {
         const tsFilePath = path.join(targetDir, tsFile)
@@ -409,16 +455,25 @@ function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type
         // 3. 遍历用户配置，匹配文件名
         for (const [keyPath, translations] of Object.entries(objectsToAdd)) {
           const keys = keyPath.split('.')
-          const fileKey = keys[0] // 配置的第一个词作为文件名
+          let propertyPath
+          let translation
 
-          if (fileKey !== fileName) continue
+          if (specificFileName) {
+            // 当 targetProperty 已指定文件名时，keyPath 直接作为属性路径
+            // 例如 objectsToAdd: { "totalOrderQuantity": { "zh": "..." } }
+            propertyPath = keys
+          } else {
+            // 原有逻辑：第一个 key 作为文件名匹配
+            // 例如 objectsToAdd: { "internalPurchaseManagement.totalOrderQuantity": { "zh": "..." } }
+            const fileKey = keys[0]
+            if (fileKey !== fileName) continue
 
-          // 获取属性路径（去掉文件名）
-          const propertyPath = keys.slice(1)
-          if (propertyPath.length === 0) continue
+            propertyPath = keys.slice(1)
+            if (propertyPath.length === 0) continue
+          }
 
           const fullPropertyKey = propertyPath.join('.')
-          const translation = translations[langCode] || translations['zh'] || ''
+          translation = translations[langCode] || translations['zh'] || ''
 
           // 4. 修改属性值
           if (tsData[fullPropertyKey] !== undefined) {
@@ -446,7 +501,6 @@ function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type
 
   return { success: true, message: `已成功处理 ${processedCount} 个文件` }
 }
-
 /**
  * 批量合并 Excel 数据到 Admin 端 TS 文件夹
  */
