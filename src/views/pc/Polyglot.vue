@@ -1,37 +1,146 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import SelectFileDialog, { type Interface } from '@/components/SelectFileDialog.vue'
+import {computed, nextTick, ref} from 'vue'
+import {ElMessage, ElTable} from 'element-plus'
+import SelectFileDialog, {type Interface} from '@/components/SelectFileDialog.vue'
+import {driver} from "driver.js";
+import "driver.js/dist/driver.css";
 
-// 当前选择的文件夹路径
 const folderPath = ref<string>('')
-// 文件夹中的所有文件列表（TypeScript 格式的多语言文件）
 const fileList = ref<Array<{ name: string; path: string; isDirectory: boolean; size: number }>>([])
-// 解析后的语言配置列表
-const localeList = ref<Array<any>>([])
-// 用户选中的文件列表
 const selectedFiles = ref<Array<{ name: string; path: string; isDirectory: boolean; size: number }>>([])
-// 表格组件的引用，用于操作表格选择状态
-const tableRef = ref()
-// 选择文件对话框组件的引用
+const isProcessing = ref(false)
+const tableRef = ref<InstanceType<typeof ElTable>>()
 const selectFileDialogRef = ref<InstanceType<typeof SelectFileDialog>>()
+const guideShow = ref(0)
+const tableKey = ref(0)
 
 /**
- * 计算选中的语言配置
- * 根据选中的文件名提取语言代码，并生成标准文件路径
+ * 初始化引导功能
  */
-const selectedLocales = computed(() => selectedFiles.value.map(file => {
-  const name = file.name.includes('zh-Hans') ? 'zh' : file.name.split('.')[0]
-  return {
-    code: name,
-    filePath: file.path
-  }
-}))
+const startGuide = () => {
+  const driverObj = driver({
+    showProgress: true,
+    steps: [
+      {
+        element: '.box',
+        popover: {
+          title: '👋 欢迎使用 PC 多语言工具',
+          description: '专治各种 TS 格式多语言文件，一用一个不吱声！',
+          side: "bottom",
+          align: 'start'
+        },
+      },
+      {
+        element: '.select-file',
+        popover: {
+          title: '第一步：选择文件夹',
+          description: '点我选择你的 PC 多语言文件夹（通常包含 zh.ts, en.ts 等文件）。',
+          side: "bottom",
+          align: 'start',
+          onNextClick: () => {
+            guideShow.value = 1
+            fileList.value = [{name: 'zh', path: 'zh.ts', isDirectory: false, size: 2048}, {
+              name: 'en',
+              path: 'en.ts',
+              isDirectory: false,
+              size: 1800
+            }]
+            nextTick(() => {
+              driverObj.moveNext()
+            })
+          },
+        },
+      },
+      {
+        element: '.file-table',
+        popover: {
+          title: '第二步：勾选要处理的文件',
+          description: '记得勾上中文基准文件（zh.ts），它是翻译的“根”。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 0
+            fileList.value = []
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+          onNextClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.moveNext()
+            })
+          },
+        },
+      },
+      {
+        element: '.to-excel',
+        popover: {
+          title: '功能一：导出对照表',
+          description: '把所有语言打包成一个 Excel 表格，方便统一翻译。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+        },
+      },
+      {
+        element: '.to-missing-excel',
+        popover: {
+          title: '功能二：揪出缺失项',
+          description: '一键找出哪些语言还没翻译完，生成缺失报告。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+        },
+      },
+      {
+        element: '.box',
+        popover: {
+          title: '🎉 引导结束',
+          description: '怎么样，是不是很简单？快去试试吧！',
+          side: "bottom",
+          align: 'start',
+          onNextClick: () => {
+            guideShow.value = 0
+            fileList.value = []
+            driverObj.moveNext();
+          },
+        },
+      }
+    ],
+    onDestroyStarted: () => {
+      if (!driverObj.hasNextStep() || confirm("你学废了吗？")) {
+        guideShow.value = 0
+        fileList.value = []
+        driverObj.destroy();
+      }
+    },
+  });
+  driverObj.drive();
+}
 
-/**
- * 处理选择文件夹操作
- * 调用 Electron API 选择文件夹，读取其中的 .ts 文件并过滤出符合条件的多语言文件
- */
+const selectedLocales = computed(() => selectedFiles.value.map(file => ({
+  code: file.name.split('.')[0],
+  standardFilePath: file.path,
+  uniAppFilePath: ''
+})))
+
 const handleSelectFolder = async () => {
   try {
     const path = await window.electronAPI?.selectFolder()
@@ -42,18 +151,8 @@ const handleSelectFolder = async () => {
       const result = await window.electronAPI?.getFolderFiles(path)
       if (result?.success) {
         fileList.value = (result.files || [])
-          .filter(file => file.name.includes('.ts'))
-          .filter(file => !file.name.includes('uni-app'))
-          .filter(file => !file.name.includes('temp'))
-          .filter(file => file.name.split('.')[0].length <= 10)
-
-        localeList.value = fileList.value.map(file => {
-          const name = file.name.includes('zh-Hans') ? 'zh' : file.name.split('.')[0]
-          return {
-            code: name,
-            filePath: file.path
-          }
-        })
+            .filter(file => file.name.endsWith('.ts'))
+            .filter(file => !file.name.includes('uni-app'))
         ElMessage.success(`找到 ${fileList.value.length} 个文件`)
       } else {
         ElMessage.error(result?.error || '读取文件夹失败')
@@ -65,16 +164,15 @@ const handleSelectFolder = async () => {
   }
 }
 
-/**
- * 处理表格选择变化事件
- */
-const handleSelectionChange = (selection: Array<{ name: string; path: string; isDirectory: boolean; size: number }>) => {
+const handleSelectionChange = (selection: Array<{
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number
+}>) => {
   selectedFiles.value = selection
 }
 
-/**
- * 处理全选/取消全选操作
- */
 const handleSelectAll = () => {
   if (selectedFiles.value.length === fileList.value.length) {
     tableRef.value?.clearSelection()
@@ -85,56 +183,43 @@ const handleSelectAll = () => {
   }
 }
 
-/**
- * 处理导出为 Excel 文件
- */
 const handleToExcel = async () => {
-  if (selectedFiles.value.length === 0) {
+  if (guideShow.value > 0) return
+  if (!selectedFiles.value.length) {
     ElMessage.warning('请至少选择一个文件')
     return
   }
   selectFileDialogRef.value?.openDialog(selectedLocales.value, 'locales')
 }
 
-/**
- * 处理筛选缺失项
- */
 const handleToMissing = async () => {
-  if (selectedFiles.value.length === 0) {
+  if (guideShow.value > 0) return
+  if (!selectedFiles.value.length) {
     ElMessage.warning('请至少选择一个文件')
     return
   }
   selectFileDialogRef.value?.openDialog(selectedLocales.value, 'missing')
 }
 
-/**
- * 处理对话框提交事件
- */
 const handleSubmit = async (e: Interface) => {
   if (e.selectType === 'locales') {
     await handleProcessLocales(e)
   } else if (e.selectType === 'missing') {
     await handleProcessMissing(e)
-  } else {
-    ElMessage.error('你选了个什么玩意？')
   }
 }
 
-/**
- * 处理语言配置并导出 Excel
- */
-const handleProcessLocales = async ({ standardFile, saveResult }: Interface) => {
+const handleProcessLocales = async ({standardFile, saveResult}: Interface) => {
   try {
     ElMessage.info('正在处理并生成 Excel...')
 
     const res = await window.electronAPI?.processPcLocales(
-      JSON.stringify(selectedLocales.value),
-      standardFile
+        JSON.stringify(selectedLocales.value),
+        standardFile
     )
 
     if (res?.success && res.data) {
       const exportResult = await window.electronAPI?.exportExcelToFolder(res.data, saveResult)
-
       if (exportResult?.success) {
         ElMessage.success(`导出成功！文件已保存到: ${exportResult.filePath}`)
       } else {
@@ -149,25 +234,24 @@ const handleProcessLocales = async ({ standardFile, saveResult }: Interface) => 
   }
 }
 
-/**
- * 处理缺失项对比并导出 Excel
- */
-const handleProcessMissing = async ({ standardFile, controlFile, saveResult }: Interface) => {
+const handleProcessMissing = async ({standardFile, controlFile, saveResult}: Interface) => {
   try {
     ElMessage.info('正在分析缺失项...')
-
     const res = await window.electronAPI?.processPcMissingLocales(
-      JSON.stringify(selectedLocales.value),
-      standardFile,
-      controlFile || undefined
+        JSON.stringify(selectedLocales.value),
+        standardFile,
+        controlFile || undefined
     )
 
     if (res?.success && res.results) {
-      const exportResult = await window.electronAPI?.exportMissingExcel(res.results, JSON.stringify({ saveResult, standardFile, controlFile }))
-
+      const exportResult = await window.electronAPI?.exportMissingExcel(res.results, JSON.stringify({
+        saveResult,
+        standardFile,
+        controlFile
+      }))
       if (exportResult?.success) {
         const totalMissing = res.results.reduce((sum, r) => sum + r.count, 0)
-        ElMessage.success(`分析完成！共发现 ${totalMissing} 个缺失项，文件已保存到: ${saveResult}`)
+        ElMessage.success(`分析完成！共发现 ${totalMissing} 个缺失项`)
       } else {
         ElMessage.error(exportResult?.error || '导出失败')
       }
@@ -180,9 +264,6 @@ const handleProcessMissing = async ({ standardFile, controlFile, saveResult }: I
   }
 }
 
-/**
- * 格式化文件大小
- */
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -193,47 +274,57 @@ const formatFileSize = (bytes: number) => {
 </script>
 
 <template>
-  <div class="mt-3">
-    <el-button @click="handleSelectFolder">选择源文件夹</el-button>
+  <div class="mt-3 box">
+    <h2 class="text-xl font-bold mb-4">PC 多语言工具</h2>
+
+    <el-button @click="handleSelectFolder" class="select-file" :class="{'pointer-events-none': guideShow > 0}">
+      选择源文件夹
+    </el-button>
+
     <el-button
-      v-if="folderPath"
-      type="primary"
-      @click="handleToExcel"
-      :disabled="selectedFiles.length === 0"
+        v-if="folderPath || guideShow > 0"
+        type="primary"
+        @click="handleToExcel"
+        :disabled="!selectedFiles?.length"
+        class="to-excel"
     >
       将选中多语言转换成表格 ({{ selectedFiles.length }})
     </el-button>
 
     <el-button
-      v-if="folderPath"
-      type="primary"
-      @click="handleToMissing"
-      :disabled="selectedFiles.length === 0"
+        v-if="folderPath || guideShow > 0"
+        type="warning"
+        @click="handleToMissing"
+        :disabled="!selectedFiles?.length"
+        class="to-missing-excel"
     >
       筛选出指定文件的缺失项 ({{ selectedFiles.length }})
     </el-button>
 
+    <el-button @click="startGuide" type="text" color="red" size="small">帮助</el-button>
+
     <div v-if="folderPath" class="mt-3 text-gray-600">
-      已选择: {{ folderPath }}
+      源文件夹: {{ folderPath }}
     </div>
 
-    <div v-if="fileList.length > 0" class="mt-5">
+    <div v-if="fileList?.length > 0 || guideShow > 0" class="mt-5 file-table">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-bold">多语言文件 (共 {{ fileList.length }} 个，已选 {{ selectedFiles.length }} 个)</h3>
+        <h3 class="text-lg font-bold">TS 文件 (共 {{ fileList?.length }} 个，已选 {{ selectedFiles?.length }} 个)</h3>
         <el-button size="small" @click="handleSelectAll">
-          {{ selectedFiles.length === fileList.length ? '取消全选' : '全选' }}
+          {{ selectedFiles?.length === fileList?.length ? '取消全选' : '全选' }}
         </el-button>
       </div>
       <el-table
-        ref="tableRef"
-        :data="fileList"
-        border
-        style="width: 100%"
-        max-height="400"
-        @selection-change="handleSelectionChange"
+          ref="tableRef"
+          :data="fileList"
+          border
+          :key="tableKey"
+          style="width: 100%"
+          max-height="400"
+          @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="55" />
-        <el-table-column prop="name" label="文件名" />
+        <el-table-column type="selection" width="55"/>
+        <el-table-column prop="name" label="文件名"/>
         <el-table-column label="大小" width="120">
           <template #default="{ row }">
             {{ formatFileSize(row.size) }}
@@ -242,7 +333,7 @@ const formatFileSize = (bytes: number) => {
       </el-table>
     </div>
 
-    <SelectFileDialog ref="selectFileDialogRef" @on-submit="handleSubmit" />
+    <SelectFileDialog ref="selectFileDialogRef" @on-submit="handleSubmit"/>
   </div>
 </template>
 

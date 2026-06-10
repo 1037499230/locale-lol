@@ -1,6 +1,6 @@
 {
   "name": "locale-lol",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "你就用吧老铁，一用一个不吱声 - 多语言处理神器",
   "main": "electron/main.cjs",
   "author": "zhangxiao",
@@ -13,6 +13,7 @@
     "start": "cross-env NODE_ENV=development electron ."
   },
   "dependencies": {
+    "driver.js": "^1.4.0",
     "element-plus": "^2.14.0",
     "vue": "^3.5.32",
     "vue-router": "^4.6.4",

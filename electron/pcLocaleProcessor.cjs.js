@@ -58,7 +58,7 @@ function processPcLocales(data, standardCode = 'zh') {
   const mergedLanguageData = {}
 
   for (const config of configs) {
-    const tsData = readTsFile(config.filePath)
+    const tsData = readTsFile(config.standardFilePath)
     if (tsData) {
       mergedLanguageData[config.code] = flattenObject(tsData)
     }

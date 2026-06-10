@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import {computed, ref} from 'vue'
-import { ElMessage } from 'element-plus'
+import {computed, nextTick, ref} from 'vue'
+import {ElMessage, ElTable} from 'element-plus'
 import SelectFileDialog, {type Interface} from "@/components/SelectFileDialog.vue";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 // 当前选择的文件夹路径
 const folderPath = ref<string>('')
@@ -12,9 +14,126 @@ const localeList = ref<Array<any>>([])
 // 用户选中的文件列表
 const selectedFiles = ref<Array<{ name: string; path: string; isDirectory: boolean; size: number }>>([])
 // 表格组件的引用，用于操作表格选择状态
-const tableRef = ref()
+const tableRef = ref<InstanceType<typeof ElTable>>()
 // 选择文件对话框组件的引用
 const selectFileDialogRef = ref<InstanceType<typeof SelectFileDialog>>()
+const guideShow = ref(0)
+const tableKey = ref(0)
+/**
+ * 初始化引导功能
+ */
+const startGuide = () => {
+  const driverObj = driver({
+    showProgress: true,
+    steps: [
+      {
+        element: '.box',
+        popover: {
+          title: '👋 欢迎使用 H5 多语言工具',
+          description: '专治各种多语言文件',
+          side: "bottom",
+          align: 'start'
+        },
+      },
+      {
+        element: '.select-file',
+        popover: {
+          title: '第一步：选择文件夹',
+          description: '点我选择你的多语言文件夹（通常是 /src/locale）。',
+          side: "bottom",
+          align: 'start',
+          onNextClick: () => {
+            guideShow.value = 1
+            fileList.value = [{ name: 'zh-Hans', path: 'zh-Hans.json', isDirectory: false, size: 1024 }, { name: 'en', path: 'en.json', isDirectory: false, size: 1024 }]
+            nextTick(() => {
+              driverObj.moveNext()
+            })
+          },
+        },
+      },
+      {
+        element: '.file-table',
+        popover: {
+          title: '第二步：勾选要处理的文件',
+          description: '记得勾上中文基准文件（比如 zh-Hans），它是翻译的“根”。当然，你也可以选其他的。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 0
+            fileList.value = []
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+          onNextClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.moveNext()
+            })
+          },
+        },
+      },
+      {
+        element: '.to-excel',
+        popover: {
+          title: '功能一：导出对照表',
+          description: '把所选语言打包成一个 Excel 表格，方便发给翻译市场统一翻译。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+        },
+      },
+      {
+        element: '.to-missing-excel',
+        popover: {
+          title: '功能二：揪出缺失项',
+          description: '一键找出哪些语言还没翻译完，生成缺失报告，让市场去补翻译。',
+          side: "bottom",
+          align: 'start',
+          onPrevClick: () => {
+            guideShow.value = 2
+            tableRef.value!.clearSelection()
+            tableRef.value!.toggleAllSelection()
+            nextTick(() => {
+              driverObj.movePrevious()
+            })
+          },
+        },
+      },
+      {
+        element: '.box',
+        popover: {
+          title: '🎉 引导结束',
+          description: '怎么样，是不是很简单？快去试试吧，一用一个不吱声！',
+          side: "bottom",
+          align: 'start',
+          onNextClick: () => {
+            guideShow.value = 0
+            fileList.value = []
+            driverObj.moveNext();
+          },
+        },
+      }
+    ],
+    onDestroyStarted: () => {
+      if (!driverObj.hasNextStep() || confirm("你学废了吗？")) {
+        guideShow.value = 0
+        fileList.value = []
+        driverObj.destroy();
+      }
+    },
+  });
+  driverObj.drive();
+}
 
 /**
  * 计算选中的语言配置
@@ -109,6 +228,9 @@ const handleSelectAll = () => {
  * 验证是否有选中文件，打开选择对话框进行多语言配置导出
  */
 const handleToExcel = async () => {
+  if (guideShow.value > 0) {
+    return
+  }
   if (selectedFiles.value.length === 0) {
     ElMessage.warning('请至少选择一个文件')
     return
@@ -121,6 +243,9 @@ const handleToExcel = async () => {
  * 验证是否有选中文件，打开选择对话框进行缺失项对比分析
  */
 const handleToMissing = async () => {
+  if (guideShow.value > 0) {
+    return
+  }
   if (selectedFiles.value.length === 0) {
     ElMessage.warning('请至少选择一个文件')
     return
@@ -224,31 +349,34 @@ const formatFileSize = (bytes: number) => {
 </script>
 
 <template>
-  <div class="mt-3">
-    <el-button @click="handleSelectFolder">选择源文件夹</el-button>
+  <div class="mt-3 box">
+    <h2 class="text-xl font-bold mb-4">H5 多语言工具</h2>
+    <el-button @click="handleSelectFolder" class="select-file" :class="{'pointer-events-none': guideShow > 0}">选择源文件夹</el-button>
     <el-button
-      v-if="folderPath"
+      v-if="folderPath || guideShow > 0"
       type="primary"
       @click="handleToExcel"
       :disabled="selectedFiles.length === 0"
+      class="to-excel"
     >
       将选中多语言转换成表格 ({{ selectedFiles.length }})
     </el-button>
-
     <el-button
-        v-if="folderPath"
+        v-if="folderPath || guideShow > 0"
         type="primary"
         @click="handleToMissing"
         :disabled="selectedFiles.length === 0"
+        class="to-missing-excel"
     >
       筛选出指定文件的缺失项 ({{ selectedFiles.length }})
     </el-button>
+    <el-button @click="startGuide" type="text" color="red" size="small">帮助</el-button>
 
-    <div v-if="folderPath" class="mt-3 text-gray-600">
+    <div v-if="folderPath || guideShow > 0" class="mt-3 text-gray-600">
       已选择: {{ folderPath }}
     </div>
 
-    <div v-if="fileList.length > 0" class="mt-5">
+    <div v-if="fileList.length > 0 || guideShow > 0" class="mt-5 file-table">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-bold">多语言文件 (共 {{ fileList.length }} 个，已选 {{ selectedFiles.length }} 个)</h3>
         <el-button size="small" @click="handleSelectAll">
@@ -259,6 +387,7 @@ const formatFileSize = (bytes: number) => {
         ref="tableRef"
         :data="fileList"
         border
+        :key="tableKey"
         style="width: 100%"
         max-height="400"
         @selection-change="handleSelectionChange"

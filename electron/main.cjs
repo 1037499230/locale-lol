@@ -213,9 +213,10 @@ ipcMain.handle('process-locales', async (event, data, standardFile) => {
 
 ipcMain.handle('process-pc-locales', async (event, data, standardCode = 'zh') => {
   try {
-    const result = processPcLocales(data, standardCode)
+    const result = processPcLocales(data.data, data.standardFile)
     return { success: true, data: result }
   } catch (error) {
+    console.error('处理PC多语言失败:', error)
     return { success: false, error: error.message }
   }
 })
