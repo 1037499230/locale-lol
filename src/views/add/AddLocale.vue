@@ -7,7 +7,8 @@ const config = ref({
   directoryPath: '',
   excludePattern: 'uni-app',
   targetProperty: 'common',
-  objectsToAdd: '{}'
+  objectsToAdd: '{}',
+  langText: ''
 })
 
 const showLangDialog = ref(false)
@@ -151,6 +152,22 @@ const handleAdd = async () => {
   }
 }
 
+const quickHandwriting = () => {
+  if (!config.value.langText) {
+    ElMessage.warning('请输入要快速填入的文本')
+    return
+  }
+
+  const objects = JSON.parse(config.value.objectsToAdd)
+  for (const key in objects) {
+    for (const langCode in objects[key]) {
+      objects[key][langCode] = config.value.langText
+    }
+  }
+  config.value.objectsToAdd = JSON.stringify(objects, null, 2)
+  ElMessage.success('已快速填入')
+}
+
 onMounted(() => {
   loadLangMap('h5')
 })
@@ -186,6 +203,14 @@ onMounted(() => {
 
       <el-form-item label="目标属性路径">
         <el-input v-model="config.targetProperty" :placeholder="targetType === 'admin' ? '例如: user.login（留空则直接在语言根目录查找）' : '例如: common 或 common.buttons'" />
+      </el-form-item>
+
+      <el-form-item label="快速填入">
+        <el-input v-model="config.langText" placeholder="请输入" >
+          <template #append>
+            <el-button @click="quickHandwriting">填充</el-button>
+          </template>
+        </el-input>
       </el-form-item>
 
       <el-form-item label="新增对象 (JSON)">
