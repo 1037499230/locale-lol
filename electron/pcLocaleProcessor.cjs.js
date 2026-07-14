@@ -144,7 +144,7 @@ function processPcMissingLocales(data, zhCode, secondRefCode) {
     throw new Error(`未找到语言代码为 ${zhCode} 的配置`)
   }
 
-  const zhData = readTsFile(zhConfig.filePath)
+  const zhData = readTsFile(zhConfig.standardFilePath)
   if (!zhData) {
     throw new Error(`无法读取基准文件 ${zhCode}`)
   }
@@ -153,14 +153,14 @@ function processPcMissingLocales(data, zhCode, secondRefCode) {
   if (secondRefCode) {
     const secondRefConfig = configs.find(c => c.code === secondRefCode)
     if (secondRefConfig) {
-      secondRefData = readTsFile(secondRefConfig.filePath)
+      secondRefData = readTsFile(secondRefConfig.standardFilePath)
     }
   }
 
   for (const config of configs) {
     if (config.code === zhCode || config.code === secondRefCode) continue
 
-    const targetData = readTsFile(config.filePath)
+    const targetData = readTsFile(config.standardFilePath)
     if (!targetData) {
       results.push({ lang: config.code, missing: [], count: 0 })
       continue
