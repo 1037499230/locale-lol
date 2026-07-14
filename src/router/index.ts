@@ -16,6 +16,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/system/TitleKeyBD.vue')
   },
   {
+    path: '/system/projectPaths',
+    name: 'system-projectPaths',
+    component: () => import('../views/system/ProjectPaths.vue')
+  },
+  {
     path: '/add/addLocale',
     name: 'add-AddLocale',
     component: () => import('../views/add/AddLocale.vue')
@@ -29,6 +34,11 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/polyglot',
     name: 'admin-polyglot',
     component: () => import('../views/admin/Polyglot.vue')
+  },
+  {
+    path: '/sync/locale',
+    name: 'sync-locale',
+    component: () => import('../views/sync/SyncLocale.vue')
   },
 ]
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, nextTick, ref} from 'vue'
+import {computed, nextTick, onMounted, ref} from 'vue'
 import {ElMessage, ElTable} from 'element-plus'
 import SelectFileDialog, {type Interface} from '@/components/SelectFileDialog.vue'
 import {driver} from "driver.js";
@@ -146,21 +146,31 @@ const handleSelectFolder = async () => {
     const path = await window.electronAPI?.selectFolder()
     if (path) {
       folderPath.value = path
-      ElMessage.success(`已选择文件夹: ${path}`)
-
-      const result = await window.electronAPI?.getFolderFiles(path)
-      if (result?.success) {
-        fileList.value = (result.files || [])
-            .filter(file => file.name.endsWith('.ts'))
-            .filter(file => !file.name.includes('uni-app'))
-        ElMessage.success(`找到 ${fileList.value.length} 个文件`)
-      } else {
-        ElMessage.error(result?.error || '读取文件夹失败')
-      }
+      await loadFolderFiles(path)
     }
   } catch (error) {
     ElMessage.error('操作失败')
     console.error('错误:', error)
+  }
+}
+
+/**
+ * 加载指定文件夹中的 TS 多语言文件
+ * @param {string} dirPath - 文件夹路径
+ */
+const loadFolderFiles = async (dirPath: string) => {
+  try {
+    const result = await window.electronAPI?.getFolderFiles(dirPath)
+    if (result?.success) {
+      fileList.value = (result.files || [])
+          .filter(file => file.name.endsWith('.ts'))
+          .filter(file => !file.name.includes('uni-app'))
+      if (fileList.value.length > 0) {
+        ElMessage.success(`已自动加载: ${dirPath}，找到 ${fileList.value.length} 个文件`)
+      }
+    }
+  } catch (error) {
+    console.error('加载文件夹失败:', error)
   }
 }
 
@@ -271,6 +281,17 @@ const formatFileSize = (bytes: number) => {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
+
+/**
+ * 页面加载时自动读取已保存的项目路径
+ */
+onMounted(async () => {
+  const res = await window.electronAPI?.getProjectPaths()
+  if (res?.success && res.data?.pc) {
+    folderPath.value = res.data.pc
+    await loadFolderFiles(res.data.pc)
+  }
+})
 </script>
 
 <template>

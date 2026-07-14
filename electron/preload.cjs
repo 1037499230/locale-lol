@@ -29,4 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   batchAddLocaleAdmin: (localesPath, targetProperty, objectsToAdd, type) => ipcRenderer.invoke('batch-add-locale-admin', localesPath, targetProperty, objectsToAdd, type),
   getAdminLocales: (localesPath) => ipcRenderer.invoke('get-admin-locales', localesPath),
   extractAdminLocales: (localesPath) => ipcRenderer.invoke('extract-admin-locales', localesPath),
+  getSyncLangMap: () => ipcRenderer.invoke('get-sync-lang-map'),
+  saveSyncLangMap: (data) => ipcRenderer.invoke('save-sync-lang-map', data),
+  syncLocaleKey: (params) => ipcRenderer.invoke('sync-locale-key', params),
+  getProjectPaths: () => ipcRenderer.invoke('get-project-paths'),
+  saveProjectPaths: (data) => ipcRenderer.invoke('save-project-paths', data),
 })

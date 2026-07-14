@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElTable } from 'element-plus'
 import SelectFileDialog, { type Interface } from '@/components/SelectFileDialog.vue'
 import { driver } from "driver.js";
@@ -309,6 +309,16 @@ const formatFileSize = (bytes: number) => {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
+
+/**
+ * 页面加载时自动读取已保存的项目路径
+ */
+onMounted(async () => {
+  const res = await window.electronAPI?.getProjectPaths()
+  if (res?.success && res.data?.admin) {
+    folderPath.value = res.data.admin
+  }
+})
 </script>
 
 <template>

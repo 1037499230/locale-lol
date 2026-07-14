@@ -5,6 +5,7 @@ const { processLocales, convertToExcel, processMissingLocales, generateMissingEx
 const { initLangMapFile, batchAddLocales, batchAddLocalesPc, batchAddLocalesAdmin, mergeAdminLocales } = require('./addLocaleProcessor.cjs')
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
 const { processAdminLocales, extractAndGenerateJson } = require('./adminLocaleProcessor.cjs')
+const { initSyncLangMapFile, loadSyncLangMap, getSyncLangMapPath, syncLocaleKey } = require('./syncLocaleProcessor.cjs')
 
 /**
  * 将扁平化的对象转换为嵌套对象
@@ -373,6 +374,10 @@ app.whenReady().then(() => {
   initLangMapFile('h5')
   initLangMapFile('pc')
   initLangMapFile('admin')
+  // 初始化 PC↔H5 同步语言映射文件
+  initSyncLangMapFile()
+  // 初始化项目路径配置文件
+  initProjectPathsFile()
 
   createWindow()
 
@@ -453,6 +458,85 @@ ipcMain.handle('extract-admin-locales', async (event, localesPath) => {
   try {
     extractAndGenerateJson(localesPath)
     return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+// ========== 项目路径持久化 ==========
+
+const PROJECT_PATHS_FILE = 'project-paths.json'
+
+const DEFAULT_PROJECT_PATHS = {
+  h5: '',
+  pc: '',
+  admin: ''
+}
+
+function getProjectPathsFilePath() {
+  return path.join(app.getPath('userData'), PROJECT_PATHS_FILE)
+}
+
+function initProjectPathsFile() {
+  const filePath = getProjectPathsFilePath()
+  if (!fs.existsSync(filePath)) {
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(DEFAULT_PROJECT_PATHS, null, 2), 'utf8')
+      console.log('✅ 已创建默认项目路径配置文件:', filePath)
+    } catch (error) {
+      console.error('❌ 创建项目路径配置文件失败:', error)
+    }
+  }
+}
+
+ipcMain.handle('get-project-paths', () => {
+  try {
+    const filePath = getProjectPathsFilePath()
+    if (fs.existsSync(filePath)) {
+      return { success: true, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) }
+    }
+    return { success: true, data: DEFAULT_PROJECT_PATHS }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('save-project-paths', (event, dataStr) => {
+  try {
+    const filePath = getProjectPathsFilePath()
+    fs.writeFileSync(filePath, dataStr, 'utf8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+// ========== PC ↔ H5 同步相关 ==========
+
+ipcMain.handle('get-sync-lang-map', () => {
+  try {
+    const data = loadSyncLangMap()
+    return { success: true, data }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('save-sync-lang-map', (event, dataStr) => {
+  try {
+    const filePath = getSyncLangMapPath()
+    fs.writeFileSync(filePath, dataStr, 'utf8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('sync-locale-key', async (event, params) => {
+  try {
+    const { sourceDir, targetDir, sourceKey, targetKey, selectedLangs, direction } = params
+    const results = syncLocaleKey(sourceDir, targetDir, sourceKey, targetKey, selectedLangs, direction)
+    return { success: true, results }
   } catch (error) {
     return { success: false, error: error.message }
   }
