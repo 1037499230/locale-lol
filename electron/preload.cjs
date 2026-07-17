@@ -44,4 +44,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('auto-mode-log')
     ipcRenderer.removeAllListeners('auto-mode-progress')
   },
+  // 自动更新
+  checkForUpdate: () => ipcRenderer.invoke('check-for-update'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.removeAllListeners('update-available')
+    ipcRenderer.on('update-available', (_event, info) => callback(info))
+  },
+  onUpdateProgress: (callback) => {
+    ipcRenderer.removeAllListeners('update-progress')
+    ipcRenderer.on('update-progress', (_event, progress) => callback(progress))
+  },
+  onUpdateDownloaded: (callback) => {
+    ipcRenderer.removeAllListeners('update-downloaded')
+    ipcRenderer.on('update-downloaded', (_event, info) => callback(info))
+  },
+  onUpdateError: (callback) => {
+    ipcRenderer.removeAllListeners('update-error')
+    ipcRenderer.on('update-error', (_event, error) => callback(error))
+  },
+  removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners('update-available')
+    ipcRenderer.removeAllListeners('update-progress')
+    ipcRenderer.removeAllListeners('update-downloaded')
+    ipcRenderer.removeAllListeners('update-error')
+  },
 })

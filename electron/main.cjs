@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { autoUpdater } = require('electron-updater')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 const { initLangMapFile, batchAddLocales, batchAddLocalesPc, batchAddLocalesAdmin, mergeAdminLocales } = require('./addLocaleProcessor.cjs')
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
@@ -134,6 +135,51 @@ function initConfigFile() {
 }
 
 let mainWindow
+
+// ========== 自动更新配置 ==========
+
+function initAutoUpdater() {
+  // 不自动下载，由用户确认后再下载
+  autoUpdater.autoDownload = false
+  // 不自动安装退出
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('🔄 发现新版本:', info.version)
+    mainWindow?.webContents.send('update-available', {
+      version: info.version,
+      releaseDate: info.releaseDate,
+      releaseNotes: info.releaseNotes
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    console.log('✅ 当前已是最新版本')
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('update-progress', {
+      bytesPerSecond: progress.bytesPerSecond,
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('✅ 新版本下载完成:', info.version)
+    mainWindow?.webContents.send('update-downloaded', {
+      version: info.version
+    })
+  })
+
+  autoUpdater.on('error', (error) => {
+    console.error('❌ 自动更新出错:', error)
+    mainWindow?.webContents.send('update-error', {
+      message: error.message
+    })
+  })
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -381,8 +427,19 @@ app.whenReady().then(() => {
   initProjectPathsFile()
   // 初始化自动模式配置文件
   initAutoModeConfig()
+  // 初始化自动更新
+  initAutoUpdater()
 
   createWindow()
+
+  // 生产环境启动后自动检查更新
+  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'production') {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('自动检查更新失败:', err)
+      })
+    }, 3000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -583,4 +640,41 @@ ipcMain.handle('auto-clone-project', async (event, projectType) => {
   } catch (error) {
     return { success: false, error: error.message }
   }
+})
+
+// ========== 自动更新相关 ==========
+
+ipcMain.handle('check-for-update', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    const currentVersion = app.getVersion()
+    const remoteVersion = result?.updateInfo?.version
+    return {
+      hasUpdate: remoteVersion && remoteVersion !== currentVersion,
+      currentVersion,
+      remoteVersion,
+      releaseNotes: result?.updateInfo?.releaseNotes,
+      releaseDate: result?.updateInfo?.releaseDate
+    }
+  } catch (error) {
+    return { hasUpdate: false, error: error.message }
+  }
+})
+
+ipcMain.handle('download-update', async () => {
+  try {
+    const downloadResult = await autoUpdater.downloadUpdate()
+    return { success: true, downloadResult }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall()
+  return { success: true }
+})
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion()
 })

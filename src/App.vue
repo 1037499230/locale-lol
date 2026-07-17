@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 
-import { ref } from 'vue'
-import router from "@/router";
+import { ref, onMounted, onUnmounted } from 'vue'
+import router from "@/router"
+import UpdateNotification from '@/components/UpdateNotification.vue'
+import { useUpdateStore } from '@/stores/updateStore'
 
 const activeIndex = ref('1')
 const handleSelect = (key: string, keyPath: string[]) => {
@@ -11,6 +13,16 @@ const handleSelect = (key: string, keyPath: string[]) => {
     path: key
   })
 }
+
+const update = useUpdateStore()
+
+onMounted(() => {
+  update.setupListeners()
+})
+
+onUnmounted(() => {
+  update.cleanupListeners()
+})
 </script>
 
 <template>
@@ -37,6 +49,8 @@ const handleSelect = (key: string, keyPath: string[]) => {
 
   <RouterView />
 
+  <!-- 自动更新通知 -->
+  <UpdateNotification />
 </template>
 
 <style scoped>

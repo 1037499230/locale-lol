@@ -43,6 +43,23 @@ interface ElectronAPI {
   onAutoModeLog: (callback: (data: { type: 'stdout' | 'stderr'; data: string; projectType: string }) => void) => void
   onAutoModeProgress: (callback: (data: { step: string; percent: number; projectType: string }) => void) => void
   removeAutoModeListeners: () => void
+  // 自动更新
+  checkForUpdate: () => Promise<{
+    hasUpdate: boolean
+    currentVersion?: string
+    remoteVersion?: string
+    releaseNotes?: string
+    releaseDate?: string
+    error?: string
+  }>
+  downloadUpdate: () => Promise<{ success: boolean; error?: string }>
+  installUpdate: () => Promise<{ success: boolean }>
+  getAppVersion: () => Promise<string>
+  onUpdateAvailable: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => void
+  onUpdateProgress: (callback: (progress: { bytesPerSecond: number; percent: number; transferred: number; total: number }) => void) => void
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => void
+  onUpdateError: (callback: (error: { message: string }) => void) => void
+  removeUpdateListeners: () => void
 }
 
 interface Window {

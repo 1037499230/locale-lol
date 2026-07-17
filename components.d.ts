@@ -34,8 +34,10 @@ declare module 'vue' {
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
+    ElTag: typeof import('element-plus/es')['ElTag']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SelectFileDialog: typeof import('./src/components/SelectFileDialog.vue')['default']
+    UpdateNotification: typeof import('./src/components/UpdateNotification.vue')['default']
   }
 }

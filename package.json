@@ -1,6 +1,6 @@
 {
   "name": "locale-lol",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "你就用吧老铁，一用一个不吱声 - 多语言处理神器",
   "main": "electron/main.cjs",
   "author": "zhangxiao",
@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "driver.js": "^1.4.0",
+    "electron-updater": "^6.8.9",
     "element-plus": "^2.14.0",
+    "pinia": "^4.0.2",
     "vue": "^3.5.32",
     "vue-router": "^4.6.4",
     "xlsx": "^0.18.5"
@@ -43,6 +45,11 @@
     "appId": "com.locale-lol.app",
     "productName": "Locale LOL",
     "icon": "build/icon.ico",
+    "publish": {
+      "provider": "github",
+      "owner": "1037499230",
+      "repo": "locale-lol"
+    },
     "directories": {
       "output": "release"
     },
