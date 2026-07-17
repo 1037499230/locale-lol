@@ -6,6 +6,7 @@ const { initLangMapFile, batchAddLocales, batchAddLocalesPc, batchAddLocalesAdmi
 const { processPcLocales, processPcMissingLocales } = require('./pcLocaleProcessor.cjs')
 const { processAdminLocales, extractAndGenerateJson } = require('./adminLocaleProcessor.cjs')
 const { initSyncLangMapFile, loadSyncLangMap, getSyncLangMapPath, syncLocaleKey } = require('./syncLocaleProcessor.cjs')
+const { initAutoModeConfig, loadAutoModeConfig, saveAutoModeConfig, autoCloneProject } = require('./gitCloneProcessor.cjs')
 
 /**
  * 将扁平化的对象转换为嵌套对象
@@ -378,6 +379,8 @@ app.whenReady().then(() => {
   initSyncLangMapFile()
   // 初始化项目路径配置文件
   initProjectPathsFile()
+  // 初始化自动模式配置文件
+  initAutoModeConfig()
 
   createWindow()
 
@@ -537,6 +540,46 @@ ipcMain.handle('sync-locale-key', async (event, params) => {
     const { sourceDir, targetDir, sourceKey, targetKey, selectedLangs, direction } = params
     const results = syncLocaleKey(sourceDir, targetDir, sourceKey, targetKey, selectedLangs, direction)
     return { success: true, results }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+// ========== 自动模式相关 ==========
+
+ipcMain.handle('get-auto-mode-config', () => {
+  try {
+    const data = loadAutoModeConfig()
+    return { success: true, data }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('save-auto-mode-config', (event, dataStr) => {
+  try {
+    const config = JSON.parse(dataStr)
+    saveAutoModeConfig(config)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('auto-clone-project', async (event, projectType) => {
+  try {
+    const result = await autoCloneProject(
+      projectType,
+      (type, data) => {
+        // 通过 IPC 向渲染进程发送日志
+        mainWindow?.webContents.send('auto-mode-log', { type, data, projectType })
+      },
+      (step, percent) => {
+        // 通过 IPC 向渲染进程发送进度
+        mainWindow?.webContents.send('auto-mode-progress', { step, percent, projectType })
+      }
+    )
+    return result
   } catch (error) {
     return { success: false, error: error.message }
   }

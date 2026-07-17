@@ -34,4 +34,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncLocaleKey: (params) => ipcRenderer.invoke('sync-locale-key', params),
   getProjectPaths: () => ipcRenderer.invoke('get-project-paths'),
   saveProjectPaths: (data) => ipcRenderer.invoke('save-project-paths', data),
+  // 自动模式
+  getAutoModeConfig: () => ipcRenderer.invoke('get-auto-mode-config'),
+  saveAutoModeConfig: (data) => ipcRenderer.invoke('save-auto-mode-config', data),
+  autoCloneProject: (projectType) => ipcRenderer.invoke('auto-clone-project', projectType),
+  onAutoModeLog: (callback) => ipcRenderer.on('auto-mode-log', (_event, data) => callback(data)),
+  onAutoModeProgress: (callback) => ipcRenderer.on('auto-mode-progress', (_event, data) => callback(data)),
+  removeAutoModeListeners: () => {
+    ipcRenderer.removeAllListeners('auto-mode-log')
+    ipcRenderer.removeAllListeners('auto-mode-progress')
+  },
 })

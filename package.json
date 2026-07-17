@@ -1,6 +1,6 @@
 {
   "name": "locale-lol",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "你就用吧老铁，一用一个不吱声 - 多语言处理神器",
   "main": "electron/main.cjs",
   "author": "zhangxiao",

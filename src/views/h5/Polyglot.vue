@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {computed, nextTick, onMounted, ref} from 'vue'
+import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue'
 import {ElMessage, ElTable} from 'element-plus'
 import SelectFileDialog, {type Interface} from "@/components/SelectFileDialog.vue";
+import AutoModeConsole from "@/components/AutoModeConsole.vue";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 
@@ -19,6 +20,13 @@ const tableRef = ref<InstanceType<typeof ElTable>>()
 const selectFileDialogRef = ref<InstanceType<typeof SelectFileDialog>>()
 const guideShow = ref(0)
 const tableKey = ref(0)
+
+// ===== 自动模式相关 =====
+const isAutoMode = ref(false)
+const isCloning = ref(false)
+const showConsole = ref(true)
+const consoleRef = ref<InstanceType<typeof AutoModeConsole>>()
+
 /**
  * 初始化引导功能
  */
@@ -55,7 +63,7 @@ const startGuide = () => {
         element: '.file-table',
         popover: {
           title: '第二步：勾选要处理的文件',
-          description: '记得勾上中文基准文件（比如 zh-Hans），它是翻译的“根”。当然，你也可以选其他的。',
+          description: '记得勾上中文基准文件（比如 zh-Hans），它是翻译的"根"。当然，你也可以选其他的。',
           side: "bottom",
           align: 'start',
           onPrevClick: () => {
@@ -213,7 +221,7 @@ const loadFolderFiles = async (dirPath: string) => {
 
 /**
  * 处理表格选择变化事件
- * @param {Array<{name: string, path: string, isDirectory: boolean, size: number}>} selection - 当前选中的文件列表
+ * @param {Array<{name: string; path: string; isDirectory: boolean; size: number}>} selection - 当前选中的文件列表
  */
 const handleSelectionChange = (selection: Array<{ name: string; path: string; isDirectory: boolean; size: number }>) => {
   selectedFiles.value = selection
@@ -357,22 +365,93 @@ const formatFileSize = (bytes: number) => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
+// ===== 自动模式 =====
+
 /**
- * 页面加载时自动读取已保存的项目路径
+ * 执行自动拉取
+ */
+const handleAutoClone = async () => {
+  isCloning.value = true
+  showConsole.value = true
+  consoleRef.value?.clearLogs()
+
+  try {
+    const result = await window.electronAPI?.autoCloneProject('h5')
+    if (result?.success && result.localPath) {
+      folderPath.value = result.localPath
+      await loadFolderFiles(result.localPath)
+      ElMessage.success(`自动拉取完成！路径: ${result.localPath}`)
+    } else {
+      ElMessage.error(result?.error || '自动拉取失败')
+    }
+  } catch (error: any) {
+    ElMessage.error('自动拉取异常: ' + error.message)
+  } finally {
+    isCloning.value = false
+  }
+}
+
+/**
+ * 页面加载时根据模式自动读取路径
  */
 onMounted(async () => {
-  const res = await window.electronAPI?.getProjectPaths()
-  if (res?.success && res.data?.h5) {
-    folderPath.value = res.data.h5
-    await loadFolderFiles(res.data.h5)
+  // 读取自动模式配置
+  const autoRes = await window.electronAPI?.getAutoModeConfig()
+  if (autoRes?.success && autoRes.data?.h5?.localPath) {
+    isAutoMode.value = true
+    folderPath.value = autoRes.data.h5.localPath
+    await loadFolderFiles(autoRes.data.h5.localPath)
+  } else {
+    // 手动模式：读已保存的项目路径
+    const res = await window.electronAPI?.getProjectPaths()
+    if (res?.success && res.data?.h5) {
+      folderPath.value = res.data.h5
+      await loadFolderFiles(res.data.h5)
+    }
   }
+})
+
+onUnmounted(() => {
+  window.electronAPI?.removeAutoModeListeners()
 })
 </script>
 
 <template>
   <div class="mt-3 box">
-    <h2 class="text-xl font-bold mb-4">H5 多语言工具</h2>
-    <el-button @click="handleSelectFolder" class="select-file" :class="{'pointer-events-none': guideShow > 0}">选择源文件夹</el-button>
+    <h2 class="text-xl font-bold mb-4">
+      H5 多语言工具
+      <el-switch
+        v-model="isAutoMode"
+        active-text="自动模式"
+        inactive-text="手动模式"
+        class="ml-4"
+        style="--el-switch-on-color: #67c23a"
+      />
+    </h2>
+
+    <!-- 手动模式 -->
+    <template v-if="!isAutoMode">
+      <el-button @click="handleSelectFolder" class="select-file" :class="{'pointer-events-none': guideShow > 0}">选择源文件夹</el-button>
+    </template>
+
+    <!-- 自动模式 -->
+    <template v-else>
+      <el-button
+        type="success"
+        @click="handleAutoClone"
+        :loading="isCloning"
+      >
+        {{ isCloning ? '拉取中...' : '自动拉取项目代码' }}
+      </el-button>
+      <el-button
+        v-if="!showConsole"
+        size="small"
+        @click="showConsole = true"
+      >
+        显示终端
+      </el-button>
+    </template>
+
     <el-button
       v-if="folderPath || guideShow > 0"
       type="primary"
@@ -422,6 +501,14 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
     </div>
+
+    <!-- 自动模式终端 -->
+    <AutoModeConsole
+      ref="consoleRef"
+      :visible="isAutoMode && showConsole"
+      project-type="h5"
+      @close="showConsole = false"
+    />
 
     <SelectFileDialog ref="selectFileDialogRef" @on-submit="handleSubmit"/>
   </div>

@@ -16,6 +16,7 @@
 | **表格转JSON** | ✅ | ✅ | ✅ | 从 Excel 提取数据生成 JSON，并智能合并到项目文件 |
 | **表格键值管理** | ✅ | ✅ | ✅ | 持久化管理表格列名映射配置 |
 | **环境配置** | - | - | - | 持久化存储各端项目路径，自动填入无需重复选择 |
+| **自动模式** | ✅ | ✅ | ✅ | 自动 clone/pull 远程仓库，切换分支，一键获取最新多语言文件 |
 
 ### 📋 功能详情
 
@@ -26,6 +27,7 @@
 - 筛选缺失项，生成对比报告
 - 支持第二对照文件（方便翻译参考）
 - **Admin 端特殊处理**：先从嵌套 TS 结构提取生成 JSON，再复用 H5 逻辑进行对比导出
+- **支持自动模式**：一键拉取远程仓库代码，自动定位多语言目录
 
 #### 2. 批量新增词条
 - 通过 JSON 模板定义要添加的词条
@@ -54,9 +56,32 @@
 - 支持多语言标题显示
 
 #### 6. 环境配置
-- 持久化存储 H5/PC/Admin 三端的项目路径
-- 各功能页自动读取并填入，无需每次手动选择
-- 路径变更时只需在配置页修改一次
+- **手动模式**：持久化存储 H5/PC/Admin 三端的项目路径，各功能页自动读取并填入
+- **自动模式**：配置远程仓库地址、目标分支、本地存储路径，一键自动拉取
+
+#### 7. 自动模式
+
+各功能页（H5/PC/Admin）均支持 **手动模式** 和 **自动模式** 切换：
+
+**手动模式**：手动选择本地文件夹路径，适合本地已有项目代码的场景。
+
+**自动模式**：自动从远程 Git 仓库拉取项目代码并切换到指定分支，适合需要频繁获取最新多语言文件的场景。
+
+- 每个功能页顶部有 **手动模式/自动模式** 切换开关
+- 首次使用自动模式需在 **环境配置 → 自动模式** 中配置：
+  - **本地存储路径**：所有项目 clone 到此目录下
+  - **远程仓库地址**：H5/PC/Admin 各端的 Git 仓库 SSH 地址
+  - **目标分支**：默认 `test`，可自定义
+- 自动拉取流程：
+  1. **首次**：`git clone` → `git checkout <branch>`
+  2. **非首次**：`git fetch --all` → `git checkout <branch>` → `git pull origin <branch>`
+- 拉取完成后自动定位到多语言子目录：
+  - H5：`src/locale`
+  - PC：`src/languages/locales`
+  - Admin：`src/languages/locales`
+- 内置 **终端控制台**，实时显示 git 命令输出和进度条
+- 认证方式依赖本机已配置的 SSH 密钥
+- **两套配置完全隔离**：手动模式和自动模式的路径配置互不影响
 
 ## 🚀 快速开始
 
@@ -64,6 +89,7 @@
 
 - Node.js >= 20.19.0 或 >= 22.12.0
 - npm >= 9.0.0
+- Git（自动模式需要，需已配置 SSH 密钥）
 
 ### 安装依赖
 
@@ -95,7 +121,8 @@ npm run electron:build
 │   ├── pcLocaleProcessor.cjs.js    # PC多语言处理逻辑
 │   ├── adminLocaleProcessor.cjs    # Admin多语言提取逻辑
 │   ├── addLocaleProcessor.cjs      # 批量新增词条逻辑
-│   └── syncLocaleProcessor.cjs     # PC↔H5同步逻辑
+│   ├── syncLocaleProcessor.cjs     # PC↔H5同步逻辑
+│   └── gitCloneProcessor.cjs       # 自动模式Git操作逻辑
 │
 ├── src/                            # Vue 渲染进程
 │   ├── views/                      # 页面组件
@@ -107,6 +134,8 @@ npm run electron:build
 │   │   ├── excel/                  # 表格转JSON
 │   │   └── system/                 # 系统配置管理
 │   ├── components/                 # 公共组件
+│   │   ├── SelectFileDialog.vue    # 文件选择对话框
+│   │   └── AutoModeConsole.vue     # 自动模式终端控制台
 │   ├── router/                     # 路由配置
 │   ├── types/                      # TypeScript 类型定义
 │   ├── App.vue                     # 根组件
@@ -135,7 +164,8 @@ npm run electron:build
 | `langMap-pc.json` | PC 语言代码映射 |
 | `langMap-admin.json` | Admin 语言代码映射 |
 | `langMap-sync.json` | H5↔PC 同步语言编码映射（解决两端命名差异） |
-| `project-paths.json` | 各端项目路径配置（自动填入） |
+| `project-paths.json` | 手动模式各端项目路径配置 |
+| `auto-mode-config.json` | 自动模式配置（远程仓库地址、分支、本地路径） |
 
 ## 🛠️ 技术栈
 
@@ -178,8 +208,18 @@ npm run electron:build
 | `getSyncLangMap` | - | 获取 H5↔PC 同步语言映射 |
 | `saveSyncLangMap` | data | 保存 H5↔PC 同步语言映射 |
 | `syncLocaleKey` | params | 执行单条 key 跨端同步 |
-| `getProjectPaths` | - | 获取各端项目路径配置 |
-| `saveProjectPaths` | data | 保存各端项目路径配置 |
+| `getProjectPaths` | - | 获取手动模式各端项目路径配置 |
+| `saveProjectPaths` | data | 保存手动模式各端项目路径配置 |
+| `getAutoModeConfig` | - | 获取自动模式配置 |
+| `saveAutoModeConfig` | data | 保存自动模式配置 |
+| `autoCloneProject` | projectType | 自动拉取项目代码（h5/pc/admin） |
+
+### 自动模式 IPC 事件流
+
+| 事件名 | 方向 | 数据结构 | 说明 |
+|--------|------|----------|------|
+| `auto-mode-log` | 主进程 → 渲染进程 | `{ type, data, projectType }` | Git 命令实时输出（stdout/stderr） |
+| `auto-mode-progress` | 主进程 → 渲染进程 | `{ step, percent, projectType }` | 操作进度（clone→checkout→done / fetch→checkout→pull→done） |
 
 ## 🤝 贡献指南
 
