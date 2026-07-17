@@ -79,7 +79,15 @@ export const useUpdateStore = defineStore('update', () => {
 
   // 监听主进程推送的更新事件
   function setupListeners() {
-    window.electronAPI!.onUpdateAvailable((info) => {
+    // 启动时先获取当前版本
+    window.electronAPI!.getAppVersion().then(v => {
+      currentVersion.value = v
+    })
+
+    window.electronAPI!.onUpdateAvailable(async (info) => {
+      if (!currentVersion.value) {
+        currentVersion.value = await window.electronAPI!.getAppVersion()
+      }
       status.value = 'available'
       remoteVersion.value = info.version
       releaseNotes.value = info.releaseNotes || ''

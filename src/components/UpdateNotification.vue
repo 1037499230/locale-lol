@@ -56,12 +56,12 @@ function handleDismiss() {
       </p>
       <div v-if="update.releaseNotes" class="release-notes">
         <p class="label">更新内容：</p>
-        <p class="notes-text">{{ update.releaseNotes }}</p>
+        <div class="notes-text" v-html="update.releaseNotes"></div>
       </div>
     </div>
     <template #footer>
       <el-button @click="handleDismiss">稍后再说</el-button>
-      <el-button type="primary" @click="handleDownload">立即下载</el-button>
+      <el-button type="primary" @click="handleDownload">立即更新</el-button>
     </template>
   </el-dialog>
 
@@ -143,9 +143,16 @@ function handleDismiss() {
 
 .notes-text {
   color: #606266;
-  white-space: pre-wrap;
   line-height: 1.6;
   margin: 4px 0 0;
+}
+
+.notes-text :deep(p) {
+  margin: 0 0 8px;
+}
+
+.notes-text :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .download-progress {
