@@ -109,7 +109,11 @@ const DEFAULT_TITLE_KEYS = {
   "en-af": "非洲-英语",
   "bn": "孟加拉语",
   "ro": "罗马尼亚语",
-  "en-ay": "东南亚-英语"
+  "en-ay": "东南亚-英语",
+  "nl": "荷兰语",
+  "et": "爱沙尼亚语",
+  "lv": "拉脱维亚语",
+  "pt": "葡萄牙语"
 }
 
 /**
@@ -212,7 +216,7 @@ ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0]
   }
@@ -302,7 +306,7 @@ ipcMain.handle('select-save-folder', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory']
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return { success: true, path: result.filePaths[0] }
   }
@@ -313,7 +317,7 @@ ipcMain.handle('export-excel-to-folder', async (event, { data, folderPath }) => 
   try {
     const fileName = `combined-locales-${Date.now()}.xlsx`
     const filePath = path.join(folderPath, fileName)
-    
+
     convertToExcel(data, filePath)
     return { success: true, filePath }
   } catch (error) {
@@ -359,7 +363,7 @@ ipcMain.handle('select-json-file', async () => {
     properties: ['openFile'],
     filters: [{ name: 'JSON Files', extensions: ['json'] }]
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0]
   }
@@ -371,7 +375,7 @@ ipcMain.handle('select-target-file', async (event, filters) => {
     properties: ['openFile'],
     filters: filters || [{ name: 'All Files', extensions: ['*'] }]
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0]
   }
@@ -381,7 +385,7 @@ ipcMain.handle('select-target-file', async (event, filters) => {
 ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) => {
   try {
     const tempData = JSON.parse(tempDataStr)
-    
+
     if (type === 'admin') {
       mergeAdminLocales(filePath, tempData)
     } else if (type === 'pc') {
@@ -392,7 +396,7 @@ ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) =
       const fileContent = fs.readFileSync(filePath, 'utf-8')
       const jsonString = fileContent.replace('export default', '').trim()
       const targetData = new Function(`return ${jsonString}`)()
-      
+
       const result = deepMerge(targetData, tempData)
       const outputContent = `export default ${JSON.stringify(result, null, 2)};`
       fs.writeFileSync(filePath, outputContent, 'utf-8')
@@ -406,7 +410,7 @@ ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) =
       const result = deepMerge(targetData, tempData)
       fs.writeFileSync(filePath, JSON.stringify(result, null, 2), 'utf-8')
     }
-    
+
     return { success: true }
   } catch (error) {
     return { success: false, error: error.message }

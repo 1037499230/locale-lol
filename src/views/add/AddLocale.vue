@@ -33,11 +33,41 @@ const generateDefaultTemplate = (langMap: Record<string, string>) => {
  * 加载语言映射配置并更新模板
  */
 const loadLangMap = async (type: string) => {
+  await updateDefaultPath()
   const res = await window.electronAPI?.getLangMap(type)
   if (res?.success && res.data) {
     currentLangMap.value = res.data
     generateDefaultTemplate(res.data)
   }
+}
+
+/**
+ * 更新默认路径
+ */
+const updateDefaultPath = async () => {
+  const res = await window.electronAPI?.getProjectPaths()
+  if (res?.success && res.data) {
+    autoFillDirs(res.data)
+  }
+}
+
+/** 根据已保存的项目路径，自动填入目标端 */
+const autoFillDirs = (paths: { h5: string; pc: string; admin: string }) => {
+  switch (targetType.value) {
+    case 'h5':
+      if (paths.h5) config.value.directoryPath = paths.h5
+      break
+    case 'pc':
+      if (paths.pc) config.value.directoryPath = paths.pc
+      break
+    case 'admin':
+      if (paths.admin) config.value.directoryPath = paths.admin
+      break
+    default:
+      config.value.directoryPath = ''
+      break
+  }
+
 }
 
 /**

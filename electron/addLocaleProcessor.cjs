@@ -30,10 +30,14 @@ const DEFAULT_LANG_MAP = {
   "fr": "fr",
   "bn": "bn",
   "ro": "ro",
+  "et": "et",
+  "nl": "nl",
   "en-af": "en-af",
   "en-ay": "en-ay",
   "es-col": "es-col",
-  "es-mex": "es-mex"
+  "es-mex": "es-mex",
+  "lv": "lv",
+  "pt": "pt"
 }
 
 /**
@@ -64,10 +68,13 @@ const DEFAULT_LANG_MAP_PC = {
   "fr": "fr",
   "bn": "bn",
   "ro": "ro",
+  "et": "et",
+  "nl": "nl",
   "en-af": "en-af",
   "en-ay": "en-ay",
   "col-es": "col-es",
-  "mex-es": "mex-es"
+  "mex-es": "mex-es",
+  "pt": "pt"
 }
 
 /**
