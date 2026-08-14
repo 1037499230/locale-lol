@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const XLSX = require('xlsx')
 const { autoUpdater } = require('electron-updater')
 const { processLocales, convertToExcel, processMissingLocales, generateMissingExcel } = require('./localeProcessor.cjs')
 const { initLangMapFile, batchAddLocales, batchAddLocalesPc, batchAddLocalesAdmin, mergeAdminLocales } = require('./addLocaleProcessor.cjs')
@@ -221,6 +222,69 @@ ipcMain.handle('select-folder', async () => {
     return result.filePaths[0]
   }
   return null
+})
+
+
+/**
+ * 读取表格工作簿。首行始终按表头返回，空单元格统一为字符串，方便渲染进程处理。
+ */
+function readSpreadsheetWorkbook(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('表格文件不存在或已被移动')
+  }
+
+  return XLSX.readFile(filePath, { cellDates: true })
+}
+
+ipcMain.handle('select-spreadsheet-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: '表格文件', extensions: ['xlsx', 'xls', 'csv'] }]
+  })
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0]
+  }
+  return null
+})
+
+ipcMain.handle('get-spreadsheet-metadata', async (event, filePath) => {
+  try {
+    const workbook = readSpreadsheetWorkbook(filePath)
+    const sheets = workbook.SheetNames.map(name => {
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+        header: 1,
+        defval: '',
+        blankrows: false
+      })
+      const headers = Array.isArray(rows[0])
+        ? rows[0].map(value => value == null ? '' : String(value))
+        : []
+      return { name, headers }
+    })
+    return { success: true, sheets }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('read-spreadsheet-sheet', async (event, filePath, sheetName) => {
+  try {
+    const workbook = readSpreadsheetWorkbook(filePath)
+    const sheet = workbook.Sheets[sheetName]
+    if (!sheet) {
+      throw new Error('未找到所选工作表')
+    }
+
+    const rows = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+      blankrows: false
+    })
+    return { success: true, rows }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
 })
 
 ipcMain.handle('get-folder-files', async (event, folderPath) => {
@@ -481,27 +545,27 @@ ipcMain.handle('save-lang-map', (event, dataStr, type = 'h5') => {
   }
 })
 
-ipcMain.handle('batch-add-locale', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5') => {
+ipcMain.handle('batch-add-locale', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5', strictTranslations = false) => {
   try {
-    const result = batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
+    const result = batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type, strictTranslations)
     return result
   } catch (error) {
     return { success: false, error: error.message }
   }
 })
 
-ipcMain.handle('batch-add-locale-pc', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'pc') => {
+ipcMain.handle('batch-add-locale-pc', (event, dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'pc', strictTranslations = false) => {
   try {
-    const result = batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type)
+    const result = batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type, strictTranslations)
     return result
   } catch (error) {
     return { success: false, error: error.message }
   }
 })
 
-ipcMain.handle('batch-add-locale-admin', (event, localesPath, targetProperty, objectsToAddStr, type = 'admin') => {
+ipcMain.handle('batch-add-locale-admin', (event, localesPath, targetProperty, objectsToAddStr, type = 'admin', strictTranslations = false) => {
   try {
-    const result = batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type)
+    const result = batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type, strictTranslations)
     return result
   } catch (error) {
     console.error('批量添加语言失败:', error)

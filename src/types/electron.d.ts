@@ -10,6 +10,9 @@ declare global {
         electron: string
       }
       selectFolder: () => Promise<string | null>
+      selectSpreadsheetFile: () => Promise<string | null>
+      getSpreadsheetMetadata: (filePath: string) => Promise<{ success: boolean; sheets?: Array<{ name: string; headers: string[] }>; error?: string }>
+      readSpreadsheetSheet: (filePath: string, sheetName: string) => Promise<{ success: boolean; rows?: unknown[][]; error?: string }>
       getFolderFiles: (folderPath: string) => Promise<{ success: boolean; files?: Array<{ name: string; path: string; isDirectory: boolean; size: number }>; error?: string }>
       processLocales: (data: string, standardFile?: any) => Promise<{ success: boolean; data?: any[]; error?: string }>
       processPcLocales: (data: string, standardFile?: any) => Promise<{ success: boolean; data?: any[]; error?: string }>
@@ -58,9 +61,9 @@ declare global {
       mergeLocaleFile: (tempData: string, type: string, filePath: string) => Promise<{ success: boolean; error?: string }>
       getLangMap: (type?: string) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
       saveLangMap: (data: string, type?: string) => Promise<{ success: boolean; error?: string }>
-      batchAddLocale: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
-      batchAddLocalePc: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
-      batchAddLocaleAdmin: (localesPath: string, targetProperty: string, objectsToAdd: string, type?: string) => Promise<{ success: boolean; message?: string; error?: string }>
+      batchAddLocale: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string, strictTranslations?: boolean) => Promise<{ success: boolean; message?: string; error?: string }>
+      batchAddLocalePc: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type?: string, strictTranslations?: boolean) => Promise<{ success: boolean; message?: string; error?: string }>
+      batchAddLocaleAdmin: (localesPath: string, targetProperty: string, objectsToAdd: string, type?: string, strictTranslations?: boolean) => Promise<{ success: boolean; message?: string; error?: string }>
       getAdminLocales: (localesPath: string) => Promise<{ success: boolean; languages?: string[]; error?: string }>
       extractAdminLocales: (localesPath: string) => Promise<{ success: boolean; error?: string }>
     }

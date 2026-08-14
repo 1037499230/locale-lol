@@ -6,7 +6,7 @@ const { app } = require('electron')
  * 默认的语言映射配置
  */
 const DEFAULT_LANG_MAP = {
-  "zh-Hans": "zh-Hans",
+  "zh-Hans": "zh",
   "bg": "bg",
   "de": "de",
   "el": "el",
@@ -72,8 +72,9 @@ const DEFAULT_LANG_MAP_PC = {
   "nl": "nl",
   "en-af": "en-af",
   "en-ay": "en-ay",
-  "col-es": "col-es",
-  "mex-es": "mex-es",
+  "col-es": "es-col",
+  "mex-es": "es-mex",
+  "lv": "lv",
   "pt": "pt"
 }
 
@@ -121,7 +122,7 @@ function initLangMapFile(type = 'h5') {
 /**
  * 批量添加多语言词条到指定文件夹下的 JSON 文件
  */
-function batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5') {
+function batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'h5', strictTranslations = false) {
   // 读取语言映射
   const langMapPath = getLangMapPath(type)
   let languages = {}
@@ -158,7 +159,16 @@ function batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddSt
     const content = fs.readFileSync(filePath, 'utf8')
     const jsonData = JSON.parse(content)
 
-    // 动态处理嵌套属性路径
+    // In strict mode, skip a language file that has no source value at all.
+    if (strictTranslations) {
+      const hasTranslationForLanguage = Object.values(objectsToAdd).some(translations => {
+        return typeof translations === 'object' && translations !== null &&
+          Object.prototype.hasOwnProperty.call(translations, fileLanguage)
+      })
+      if (!hasTranslationForLanguage) continue
+    }
+
+    // Create the configured nested property path.
     const properties = targetProperty.split('.')
     let currentObj = jsonData
     for (let i = 0; i < properties.length - 1; i++) {
@@ -175,7 +185,12 @@ function batchAddLocales(dirPath, excludePattern, targetProperty, objectsToAddSt
     // 遍历要添加的对象，根据当前文件语言提取对应的翻译
     for (const [key, translations] of Object.entries(objectsToAdd)) {
       if (typeof translations === 'object' && translations !== null) {
-        const translation = translations[fileLanguage] || translations['zh-Hans'] || ''
+        if (strictTranslations && !Object.prototype.hasOwnProperty.call(translations, fileLanguage)) {
+          continue
+        }
+        const translation = strictTranslations
+          ? translations[fileLanguage]
+          : translations[fileLanguage] || translations['zh-Hans'] || ''
         currentObj[finalProperty][key] = translation
       }
     }
@@ -298,7 +313,7 @@ function objectToTsString(obj, indent = 0) {
 /**
  * 批量添加多语言词条到 PC 端 TS 文件
  */
-function batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'pc') {
+function batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAddStr, type = 'pc', strictTranslations = false) {
   const langMapPath = path.join(app.getPath('userData'), `langMap-${type}.json`)
   let languages = {}
   if (fs.existsSync(langMapPath)) {
@@ -338,13 +353,23 @@ function batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAdd
     Object.keys(objectsToAdd).forEach(key => {
       const translations = objectsToAdd[key]
       if (typeof translations === 'object' && translations !== null && !Array.isArray(translations)) {
-        localizedObjectToAdd[key] = translations[fileLanguage] || translations['zh'] || ''
+        if (strictTranslations && !Object.prototype.hasOwnProperty.call(translations, fileLanguage)) {
+          return
+        }
+        localizedObjectToAdd[key] = strictTranslations
+          ? translations[fileLanguage]
+          : translations[fileLanguage] || translations['zh'] || ''
       } else {
         localizedObjectToAdd[key] = translations
       }
     })
 
-    // 合并到指定路径
+    // Do not create or overwrite a target when this language has no source value.
+    if (strictTranslations && Object.keys(localizedObjectToAdd).length === 0) {
+      continue
+    }
+
+    // Merge into the configured path.
     const target = getNestedProperty(jsonData, targetProperty)
     if (!target) {
       setNestedProperty(jsonData, targetProperty, localizedObjectToAdd)
@@ -368,7 +393,7 @@ function batchAddLocalesPc(dirPath, excludePattern, targetProperty, objectsToAdd
 /**
  * 批量添加多语言词条到 Admin 端 TS 文件（嵌套结构）
  */
-function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type = 'admin') {
+function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type = 'admin', strictTranslations = false) {
   const langMapPath = path.join(app.getPath('userData'), `langMap-${type}.json`)
   let languages = {}
   if (fs.existsSync(langMapPath)) {
@@ -480,7 +505,12 @@ function batchAddLocalesAdmin(localesPath, targetProperty, objectsToAddStr, type
           }
 
           const fullPropertyKey = propertyPath.join('.')
-          translation = translations[langCode] || translations['zh'] || ''
+          if (strictTranslations && !Object.prototype.hasOwnProperty.call(translations, langCode)) {
+            continue
+          }
+          translation = strictTranslations
+            ? translations[langCode]
+            : translations[langCode] || translations['zh'] || ''
 
           // 4. 修改属性值
           if (tsData[fullPropertyKey] !== undefined) {
