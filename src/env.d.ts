@@ -40,6 +40,12 @@ interface ElectronAPI {
   getAutoModeConfig: () => Promise<{ success: boolean; data?: any; error?: string }>
   saveAutoModeConfig: (data: string) => Promise<{ success: boolean; error?: string }>
   autoCloneProject: (projectType: string) => Promise<{ success: boolean; localPath?: string; error?: string }>
+  openAutoModeTerminal: (projectType: string) => Promise<{ success: boolean; error?: string }>
+  closeAutoModeTerminal: (projectType: string) => Promise<{ success: boolean; error?: string }>
+  clearAutoModeTerminalLogs: (projectType: string) => Promise<{ success: boolean; error?: string }>
+  onAutoModeTerminalClear: (callback: (data: { projectType: string }) => void) => void
+  onAutoModeTerminalClosed: (callback: (data: { projectType: string }) => void) => void
+  removeAutoModeTerminalListeners: () => void
   onAutoModeLog: (callback: (data: { type: 'stdout' | 'stderr'; data: string; projectType: string }) => void) => void
   onAutoModeProgress: (callback: (data: { step: string; percent: number; projectType: string }) => void) => void
   removeAutoModeListeners: () => void

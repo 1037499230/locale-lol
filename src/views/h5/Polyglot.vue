@@ -2,7 +2,6 @@
 import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue'
 import {ElMessage, ElTable} from 'element-plus'
 import SelectFileDialog, {type Interface} from "@/components/SelectFileDialog.vue";
-import AutoModeConsole from "@/components/AutoModeConsole.vue";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 
@@ -24,8 +23,7 @@ const tableKey = ref(0)
 // ===== 自动模式相关 =====
 const isAutoMode = ref(false)
 const isCloning = ref(false)
-const showConsole = ref(true)
-const consoleRef = ref<InstanceType<typeof AutoModeConsole>>()
+const showConsole = ref(false)
 
 /**
  * 初始化引导功能
@@ -372,8 +370,6 @@ const formatFileSize = (bytes: number) => {
  */
 const handleAutoClone = async () => {
   isCloning.value = true
-  showConsole.value = true
-  consoleRef.value?.clearLogs()
 
   try {
     const result = await window.electronAPI?.autoCloneProject('h5')
@@ -394,7 +390,25 @@ const handleAutoClone = async () => {
 /**
  * 页面加载时根据模式自动读取路径
  */
+const handleConsoleVisibility = async (visible: boolean) => {
+  const result = visible
+    ? await window.electronAPI?.openAutoModeTerminal('h5')
+    : await window.electronAPI?.closeAutoModeTerminal('h5')
+
+  if (!result?.success) {
+    showConsole.value = false
+    ElMessage.error(result?.error || 'Unable to update terminal visibility')
+  }
+}
+
+const handleAutoModeTerminalClosed = (data: { projectType: string }) => {
+  if (data.projectType === 'h5') {
+    showConsole.value = false
+  }
+}
+
 onMounted(async () => {
+  window.electronAPI?.onAutoModeTerminalClosed(handleAutoModeTerminalClosed)
   // 读取自动模式配置
   const autoRes = await window.electronAPI?.getAutoModeConfig()
   if (autoRes?.success && autoRes.data?.h5?.localPath) {
@@ -412,7 +426,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  window.electronAPI?.removeAutoModeListeners()
+  window.electronAPI?.closeAutoModeTerminal('h5')
+  window.electronAPI?.removeAutoModeTerminalListeners()
 })
 </script>
 
@@ -427,6 +442,15 @@ onUnmounted(() => {
         class="ml-4"
         style="--el-switch-on-color: #67c23a"
       />
+      <template v-if="isAutoMode">
+        <span class="ml-4">显示终端</span>
+        <el-switch
+          v-model="showConsole"
+          class="ml-2"
+          aria-label="显示终端"
+          @change="handleConsoleVisibility"
+        />
+      </template>
     </h2>
 
     <!-- 手动模式 -->
@@ -442,13 +466,6 @@ onUnmounted(() => {
         :loading="isCloning"
       >
         {{ isCloning ? '拉取中...' : '自动拉取项目代码' }}
-      </el-button>
-      <el-button
-        v-if="!showConsole"
-        size="small"
-        @click="showConsole = true"
-      >
-        显示终端
       </el-button>
     </template>
 
@@ -503,12 +520,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 自动模式终端 -->
-    <AutoModeConsole
-      ref="consoleRef"
-      :visible="isAutoMode && showConsole"
-      project-type="h5"
-      @close="showConsole = false"
-    />
+
 
     <SelectFileDialog ref="selectFileDialogRef" @on-submit="handleSubmit"/>
   </div>

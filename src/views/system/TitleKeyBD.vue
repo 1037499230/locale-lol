@@ -64,8 +64,8 @@ function handleClear() {
 </script>
 
 <template>
-  <div>
-    <div class="mt-3">
+  <div class="table-key-page">
+    <div class="table-key-toolbar mt-3">
       <el-button @click="handleAdd">新增</el-button>
       <el-button @click="dialogVisible = true" type="warning">导入</el-button>
       <el-button @click="handleSubmit" type="primary">保存</el-button>
@@ -96,5 +96,18 @@ function handleClear() {
 </template>
 
 <style scoped>
+.table-key-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--el-bg-color);
+  box-shadow: 0 6px 10px -10px rgb(0 0 0 / 45%);
+}
 
+.table-key-toolbar :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
 </style>

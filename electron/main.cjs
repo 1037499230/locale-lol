@@ -56,6 +56,90 @@ function deepMerge(target, source) {
   return result
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * uni-app locale files store their keys as common["uni.xxx"], rather than as
+ * common.uni.xxx. Recursively flatten source values into that file format.
+ */
+function addUniAppEntries(target, sourceKey, value) {
+  const key = sourceKey.slice('common.'.length)
+  if (!target.common) target.common = {}
+
+  const appendValue = (currentKey, currentValue) => {
+    if (isPlainObject(currentValue)) {
+      const entries = Object.entries(currentValue)
+      if (entries.length === 0) {
+        target.common[currentKey] = {}
+        return
+      }
+
+      entries.forEach(([childKey, childValue]) => {
+        appendValue(`${currentKey}.${childKey}`, childValue)
+      })
+      return
+    }
+
+    target.common[currentKey] = currentValue
+  }
+
+  appendValue(key, value)
+}
+
+function hasUniAppEntries(localeData) {
+  return Boolean(localeData.common && Object.keys(localeData.common).length > 0)
+}
+
+/**
+ * Repair the nested common.uni shape written by older versions, if present in
+ * a uni-app file, and return its values in the proper common["uni.xxx"] form.
+ */
+function extractAndRemoveNestedUniAppEntries(localeData) {
+  const extracted = {}
+
+  for (const key of Object.keys(localeData)) {
+    if (key === 'common.uni' || key.startsWith('common.uni.')) {
+      addUniAppEntries(extracted, key, localeData[key])
+      delete localeData[key]
+    }
+  }
+
+  if (isPlainObject(localeData.common) && Object.prototype.hasOwnProperty.call(localeData.common, 'uni')) {
+    addUniAppEntries(extracted, 'common.uni', localeData.common.uni)
+    delete localeData.common.uni
+  }
+
+  return extracted
+}
+
+/**
+ * Remove legacy common.uni entries from a normal H5 locale file and convert
+ * them to the key format used by the matching uni-app locale file.
+ */
+function extractAndRemoveUniAppEntries(localeData) {
+  const extracted = {}
+
+  for (const key of Object.keys(localeData)) {
+    if (key === 'common.uni' || key.startsWith('common.uni.')) {
+      addUniAppEntries(extracted, key, localeData[key])
+      delete localeData[key]
+    }
+  }
+
+  if (isPlainObject(localeData.common) && Object.prototype.hasOwnProperty.call(localeData.common, 'uni')) {
+    addUniAppEntries(extracted, 'common.uni', localeData.common.uni)
+    delete localeData.common.uni
+
+    if (Object.keys(localeData.common).length === 0) {
+      delete localeData.common
+    }
+  }
+
+  return extracted
+}
+
 /**
  * 对象转 TS 格式字符串（用于 Admin 合并）
  */
@@ -140,6 +224,102 @@ function initConfigFile() {
 }
 
 let mainWindow
+const autoModeTerminalWindows = new Map()
+const autoModeTerminalStates = new Map()
+const AUTO_MODE_PROJECT_TYPES = new Set(['h5', 'pc', 'admin'])
+
+function assertAutoModeProjectType(projectType) {
+  if (!AUTO_MODE_PROJECT_TYPES.has(projectType)) {
+    throw new Error('Invalid auto mode project type')
+  }
+}
+
+function getAutoModeTerminalState(projectType) {
+  if (!autoModeTerminalStates.has(projectType)) {
+    autoModeTerminalStates.set(projectType, { logs: [], progress: null })
+  }
+  return autoModeTerminalStates.get(projectType)
+}
+
+function sendToAutoModeTerminal(projectType, channel, payload) {
+  const terminalWindow = autoModeTerminalWindows.get(projectType)
+  if (terminalWindow && !terminalWindow.isDestroyed()) {
+    terminalWindow.webContents.send(channel, payload)
+  }
+}
+
+function clearAutoModeTerminalState(projectType) {
+  const state = getAutoModeTerminalState(projectType)
+  state.logs = []
+  state.progress = null
+  sendToAutoModeTerminal(projectType, 'auto-mode-terminal-clear', { projectType })
+}
+
+function publishAutoModeEvent(channel, payload) {
+  const state = getAutoModeTerminalState(payload.projectType)
+  if (channel === 'auto-mode-log') {
+    state.logs.push(payload)
+    if (state.logs.length > 2000) state.logs.shift()
+  } else if (channel === 'auto-mode-progress') {
+    state.progress = payload
+  }
+
+  sendToAutoModeTerminal(payload.projectType, channel, payload)
+}
+
+function openAutoModeTerminal(projectType) {
+  assertAutoModeProjectType(projectType)
+
+  const existingWindow = autoModeTerminalWindows.get(projectType)
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    existingWindow.show()
+    existingWindow.focus()
+    return
+  }
+
+  const terminalWindow = new BrowserWindow({
+    width: 760,
+    height: 500,
+    minWidth: 480,
+    minHeight: 280,
+    title: `Auto Mode Terminal - ${projectType.toUpperCase()}`,
+    autoHideMenuBar: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs')
+    }
+  })
+
+  autoModeTerminalWindows.set(projectType, terminalWindow)
+
+  terminalWindow.once('ready-to-show', () => {
+    terminalWindow.show()
+  })
+
+  terminalWindow.webContents.once('did-finish-load', () => {
+    const state = getAutoModeTerminalState(projectType)
+    state.logs.forEach((entry) => terminalWindow.webContents.send('auto-mode-log', entry))
+    if (state.progress) {
+      terminalWindow.webContents.send('auto-mode-progress', state.progress)
+    }
+  })
+
+  terminalWindow.on('closed', () => {
+    autoModeTerminalWindows.delete(projectType)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auto-mode-terminal-closed', { projectType })
+    }
+  })
+
+  terminalWindow.loadFile(path.join(__dirname, 'autoModeTerminal.html'), {
+    query: { projectType }
+  })
+}
 
 // ========== 自动更新配置 ==========
 
@@ -465,14 +645,61 @@ ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) =
       const outputContent = `export default ${JSON.stringify(result, null, 2)};`
       fs.writeFileSync(filePath, outputContent, 'utf-8')
     } else {
-      // H5 端：读取 JSON 文件，合并后写回 JSON 格式
+      // H5: common.uni.* belongs in the uni-app file for the selected language.
       if (!fs.existsSync(filePath)) {
-        return { success: false, error: `目标文件不存在: ${filePath}` }
+        return { success: false, error: `Target file does not exist: ${filePath}` }
       }
+
+      const targetFileName = path.basename(filePath)
+      if (path.extname(targetFileName).toLowerCase() !== '.json' || targetFileName.toLowerCase().startsWith('uni-app.')) {
+        return { success: false, error: `Select a primary language file (for example fr.json), not a uni-app file: ${filePath}` }
+      }
+
+      const normalData = {}
+      const incomingUniAppData = {}
+      for (const [key, value] of Object.entries(tempData)) {
+        if (key === 'common.uni' || key.startsWith('common.uni.')) {
+          addUniAppEntries(incomingUniAppData, key, value)
+        } else {
+          normalData[key] = value
+        }
+      }
+
+      // Read and calculate every result before writing either file. This guarantees that
+      // a missing/broken uni-app file cannot leave the normal locale half-updated.
       const targetRaw = fs.readFileSync(filePath, 'utf-8')
       const targetData = JSON.parse(targetRaw)
-      const result = deepMerge(targetData, tempData)
-      fs.writeFileSync(filePath, JSON.stringify(result, null, 2), 'utf-8')
+      const legacyUniAppData = extractAndRemoveUniAppEntries(targetData)
+      const hasUniAppChanges = hasUniAppEntries(legacyUniAppData) || hasUniAppEntries(incomingUniAppData)
+      const normalResult = deepMerge(targetData, normalData)
+
+      let uniAppFilePath
+      let uniAppResult
+      if (hasUniAppChanges) {
+        uniAppFilePath = path.join(path.dirname(filePath), `uni-app.${targetFileName}`)
+        if (!fs.existsSync(uniAppFilePath)) {
+          return { success: false, error: `Uni App target file does not exist: ${uniAppFilePath}` }
+        }
+
+        const uniAppRaw = fs.readFileSync(uniAppFilePath, 'utf-8')
+        const uniAppTargetData = JSON.parse(uniAppRaw)
+        const incorrectlyNestedUniAppData = extractAndRemoveNestedUniAppEntries(uniAppTargetData)
+        // Existing entries moved out of fr.json are retained, while current Excel values win.
+        uniAppResult = deepMerge(
+          deepMerge(
+            deepMerge(uniAppTargetData, incorrectlyNestedUniAppData),
+            legacyUniAppData
+          ),
+          incomingUniAppData
+        )
+      }
+
+      // Write the uni-app sibling first. If the second write ever fails, the normal file
+      // still retains its old entries rather than silently losing common.uni.* translations.
+      if (hasUniAppChanges) {
+        fs.writeFileSync(uniAppFilePath, JSON.stringify(uniAppResult, null, 2), 'utf-8')
+      }
+      fs.writeFileSync(filePath, JSON.stringify(normalResult, null, 2), 'utf-8')
     }
 
     return { success: true }
@@ -691,17 +918,49 @@ ipcMain.handle('save-auto-mode-config', (event, dataStr) => {
   }
 })
 
+ipcMain.handle('open-auto-mode-terminal', (event, projectType) => {
+  try {
+    openAutoModeTerminal(projectType)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('close-auto-mode-terminal', (event, projectType) => {
+  try {
+    assertAutoModeProjectType(projectType)
+    const terminalWindow = autoModeTerminalWindows.get(projectType)
+    if (terminalWindow && !terminalWindow.isDestroyed()) terminalWindow.close()
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('clear-auto-mode-terminal-logs', (event, projectType) => {
+  try {
+    assertAutoModeProjectType(projectType)
+    clearAutoModeTerminalState(projectType)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 ipcMain.handle('auto-clone-project', async (event, projectType) => {
   try {
+    assertAutoModeProjectType(projectType)
+    clearAutoModeTerminalState(projectType)
     const result = await autoCloneProject(
       projectType,
       (type, data) => {
         // 通过 IPC 向渲染进程发送日志
-        mainWindow?.webContents.send('auto-mode-log', { type, data, projectType })
+        publishAutoModeEvent('auto-mode-log', { type, data, projectType })
       },
       (step, percent) => {
         // 通过 IPC 向渲染进程发送进度
-        mainWindow?.webContents.send('auto-mode-progress', { step, percent, projectType })
+        publishAutoModeEvent('auto-mode-progress', { step, percent, projectType })
       }
     )
     return result

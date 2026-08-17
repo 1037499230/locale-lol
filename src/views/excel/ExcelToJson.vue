@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
+
+type TargetType = 'h5' | 'pc' | 'admin'
+
+interface LocaleTarget {
+  /** 用于合并的原始文件/文件夹名称。 */
+  name: string
+  /** 去除文件后缀后的项目语言键。 */
+  code: string
+  /** 通过语言映射和表格键值管理转换后的显示名称。 */
+  displayName: string
+  path: string
+}
 
 const fileInput = ref<HTMLInputElement>()
 const selectedFile = ref<File | null>(null)
@@ -13,8 +25,12 @@ const headers = ref<string[]>([])
 const jsonData = ref<Record<string, any>>({})
 const sheetNames = ref<string[]>([])
 const showMergeDialog = ref(false)
-const targetType = ref('h5')
-const targetFilePath = ref<string>('')
+const targetType = ref<TargetType>('h5')
+const targetFolderPath = ref('')
+const targetFilePath = ref('')
+const localeTargets = ref<LocaleTarget[]>([])
+const isLoadingLocaleTargets = ref(false)
+let localeTargetScanId = 0
 
 /**
  * 处理文件选择
@@ -106,32 +122,113 @@ const generateJson = () => {
   showMergeDialog.value = true
 }
 
-/**
- * 选择目标文件（JSON 或 TS）
- */
-const handleSelectTargetFile = async () => {
-  if (targetType.value === 'admin') {
-    const path = await window.electronAPI?.selectFolder()
-    if (path) targetFilePath.value = path
+/** 读取目标文件夹第一层可合并的多语言项。 */
+const loadLocaleTargets = async (folderPath: string) => {
+  const scanId = ++localeTargetScanId
+  targetFolderPath.value = folderPath
+  targetFilePath.value = ''
+  localeTargets.value = []
+
+  if (!folderPath) return
+
+  isLoadingLocaleTargets.value = true
+  try {
+    const [folderRes, titleKeysRes, langMapRes] = await Promise.all([
+      window.electronAPI?.getFolderFiles(folderPath),
+      window.electronAPI?.getTitleKeys(),
+      window.electronAPI?.getLangMap(targetType.value)
+    ])
+    if (scanId !== localeTargetScanId) return
+
+    if (!folderRes?.success) {
+      ElMessage.error(folderRes?.error || '读取目标文件夹失败')
+      return
+    }
+
+    // 语言映射：项目内语言键 -> 通用语言代码；表格键值管理：通用语言代码 -> 中文名称。
+    // 只有同时完成“当前应用语言映射”和“中文名称映射”的项才可作为合并目标。
+    const titleKeys = titleKeysRes?.success ? titleKeysRes.data || {} : {}
+    const langMap = langMapRes?.success ? langMapRes.data || {} : {}
+    const extension = targetType.value === 'h5' ? '.json' : '.ts'
+    const getLocaleCode = (name: string) => targetType.value === 'admin'
+      ? name
+      : name.slice(0, -extension.length)
+
+    localeTargets.value = (folderRes.files || [])
+      .filter(item => {
+        if (targetType.value === 'admin') return item.isDirectory
+        if (item.isDirectory || !item.name.toLowerCase().endsWith(extension)) return false
+        // uni-app.xxx.json 会随所选的 xxx.json 自动写入，因此不作为可选择的目标显示。
+        return targetType.value !== 'h5' || !item.name.toLowerCase().startsWith('uni-app.')
+      })
+      .map(item => {
+        const code = getLocaleCode(item.name)
+        const commonCode = langMap[code] || langMap[item.name]
+        const displayName = commonCode ? titleKeys[commonCode] || titleKeys[code] : ''
+        return { name: item.name, code, commonCode, displayName, path: item.path }
+      })
+      .filter(target => Boolean(target.commonCode && target.displayName))
+      .map(({ name, code, displayName, path }) => ({ name, code, displayName, path }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'))
+
+    if (localeTargets.value.length === 0) {
+      ElMessage.warning('未找到可合并的多语言')
+    }
+  } catch (error) {
+    if (scanId === localeTargetScanId) {
+      ElMessage.error('读取目标文件夹失败')
+    }
+  } finally {
+    if (scanId === localeTargetScanId) {
+      isLoadingLocaleTargets.value = false
+    }
+  }
+}
+
+/** 按当前应用类型读取环境配置中的默认多语言文件夹。 */
+const loadConfiguredLocaleFolder = async () => {
+  const res = await window.electronAPI?.getProjectPaths()
+  const folderPath = res?.success ? res.data?.[targetType.value] || '' : ''
+
+  if (!folderPath) {
+    localeTargetScanId += 1
+    targetFolderPath.value = ''
+    targetFilePath.value = ''
+    localeTargets.value = []
+    isLoadingLocaleTargets.value = false
+    ElMessage.warning('当前应用类型尚未配置默认多语言文件夹，请手动选择')
     return
   }
 
-  const filters = targetType.value === 'pc'
-    ? [{ name: 'TypeScript Files', extensions: ['ts'] }]
-    : [{ name: 'JSON Files', extensions: ['json'] }]
+  await loadLocaleTargets(folderPath)
+}
 
-  const path = await window.electronAPI?.selectTargetFile(filters)
-  if (path) {
-    targetFilePath.value = path
+/** 手动重新选择目标文件夹。 */
+const handleSelectTargetFolder = async () => {
+  const folderPath = await window.electronAPI?.selectFolder()
+  if (folderPath) {
+    await loadLocaleTargets(folderPath)
   }
 }
+
+watch(targetType, () => {
+  if (showMergeDialog.value) {
+    void loadConfiguredLocaleFolder()
+  }
+})
+
+watch(showMergeDialog, (visible) => {
+  if (visible) {
+    void loadConfiguredLocaleFolder()
+  }
+})
 
 /**
  * 执行合并操作
  */
 const handleMerge = async () => {
   if (!targetFilePath.value) {
-    ElMessage.warning('请先选择目标文件')
+    ElMessage.warning('请先选择一个目标多语言')
     return
   }
 
@@ -146,7 +243,9 @@ const handleMerge = async () => {
     if (res?.success) {
       ElMessage.success('合并成功！')
       showMergeDialog.value = false
+      targetFolderPath.value = ''
       targetFilePath.value = ''
+      localeTargets.value = []
     } else {
       ElMessage.error(res?.error || '合并失败')
     }
@@ -209,8 +308,7 @@ const downloadJson = () => {
       <el-button type="success" @click="downloadJson" :disabled="Object.keys(jsonData).length === 0">仅下载 JSON</el-button>
     </div>
 
-    <!-- 合并对话框 -->
-    <el-dialog v-model="showMergeDialog" title="合并到多语言文件">
+    <el-dialog v-model="showMergeDialog" title="合并到多语言文件" width="600px">
       <el-form label-width="100px">
         <el-form-item label="应用类型">
           <el-select v-model="targetType" placeholder="请选择">
@@ -219,21 +317,233 @@ const downloadJson = () => {
             <el-option label="Admin 端" value="admin" />
           </el-select>
         </el-form-item>
-        <el-form-item label="目标位置">
-          <el-input
-            v-model="targetFilePath"
-            :placeholder="targetType === 'admin' ? '请选择 Admin 语言文件夹' : (targetType === 'pc' ? '请选择目标 TS 文件' : '请选择目标 JSON 文件')"
-          >
+
+        <el-form-item label="目标文件夹">
+          <el-input v-model="targetFolderPath" readonly placeholder="请先在环境配置中设置默认多语言文件夹，或手动选择">
             <template #append>
-              <el-button @click="handleSelectTargetFile">{{ targetType === 'admin' ? '选择文件夹' : '选择文件' }}</el-button>
+              <el-button @click="handleSelectTargetFolder">选择文件夹</el-button>
             </template>
           </el-input>
+        </el-form-item>
+
+        <el-form-item label="目标多语言" class="locale-target-form-item">
+          <div v-if="targetFolderPath || isLoadingLocaleTargets" class="locale-target-panel w-full">
+            <div class="locale-target-panel__header">
+              <div>
+                <p class="locale-target-panel__title">选择合并目标</p>
+                <p class="locale-target-panel__subtitle">仅可选择一个{{ targetType === 'admin' ? '语言文件夹' : '语言文件' }}</p>
+              </div>
+              <span v-if="!isLoadingLocaleTargets" class="locale-target-panel__count">{{ localeTargets.length }} 个可用</span>
+            </div>
+
+            <el-skeleton v-if="isLoadingLocaleTargets" :rows="2" animated class="locale-target-panel__loading" />
+            <el-radio-group v-else-if="localeTargets.length" v-model="targetFilePath" class="locale-target-list">
+              <el-radio v-for="target in localeTargets" :key="target.path" :value="target.path" border class="locale-target-card">
+                <span class="locale-target-card__content">
+                  <span class="locale-target-card__type">{{ targetType === 'admin' ? '目录' : (targetType === 'pc' ? 'TS' : 'JSON') }}</span>
+                  <span class="locale-target-card__text">
+                    <span class="locale-target-card__name" :title="target.displayName">{{ target.displayName }}</span>
+                    <span v-if="target.displayName !== target.code" class="locale-target-card__code">{{ target.code }}</span>
+                  </span>
+                </span>
+              </el-radio>
+            </el-radio-group>
+            <div v-else class="locale-target-empty">
+              <span class="locale-target-empty__icon">—</span>
+              <span>该文件夹第一层未找到可合并的多语言</span>
+            </div>
+          </div>
+          <div v-else class="locale-target-hint">请选择目标文件夹后，再选择一个目标多语言。</div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showMergeDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleMerge">开始合并</el-button>
+        <el-button type="primary" @click="handleMerge" :disabled="!targetFilePath || isLoadingLocaleTargets">开始合并</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
+
+
+<style scoped>
+.locale-target-form-item :deep(.el-form-item__content) {
+  min-width: 0;
+}
+
+.locale-target-panel {
+  overflow: hidden;
+  border: 1px solid #e4eaf5;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fbfcff 0%, #f5f8ff 100%);
+  box-shadow: 0 8px 24px rgb(55 93 155 / 6%);
+}
+
+.locale-target-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px 12px;
+  border-bottom: 1px solid #e9eef7;
+}
+
+.locale-target-panel__title {
+  margin: 0;
+  color: #26344e;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.locale-target-panel__subtitle {
+  margin: 3px 0 0;
+  color: #8a95a8;
+  font-size: 12px;
+}
+
+.locale-target-panel__count {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #4f6fb2;
+  background: #eaf1ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.locale-target-panel__loading {
+  padding: 16px;
+}
+
+.locale-target-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 252px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.locale-target-card.el-radio.is-bordered {
+  display: flex;
+  width: 100%;
+  height: 62px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px;
+  border-color: #e1e7f1;
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.locale-target-card.el-radio.is-bordered:hover {
+  border-color: #a8c1f5;
+  box-shadow: 0 5px 14px rgb(55 106 190 / 10%);
+  transform: translateY(-1px);
+}
+
+.locale-target-card.el-radio.is-bordered.is-checked {
+  border-color: #5b8def;
+  background: linear-gradient(135deg, #f5f8ff, #eef4ff);
+  box-shadow: 0 5px 16px rgb(63 117 209 / 15%);
+}
+
+.locale-target-card :deep(.el-radio__input) {
+  flex: none;
+}
+
+.locale-target-card :deep(.el-radio__label) {
+  flex: 1;
+  min-width: 0;
+  padding-left: 9px;
+}
+
+.locale-target-card__content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.locale-target-card__type {
+  flex: none;
+  min-width: 38px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  color: #5d78b7;
+  background: #eef3ff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.locale-target-card.is-checked .locale-target-card__type {
+  color: #fff;
+  background: #5b8def;
+}
+
+.locale-target-card__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.locale-target-card__name {
+  overflow: hidden;
+  color: #34415a;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.locale-target-card__code {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #98a2b3;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.locale-target-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 132px;
+  gap: 8px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.locale-target-empty__icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  color: #a8b3c4;
+  background: #edf1f6;
+  font-size: 20px;
+}
+
+.locale-target-hint {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px dashed #d8e0ed;
+  border-radius: 10px;
+  color: #98a2b3;
+  background: #fafbfd;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .locale-target-list {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

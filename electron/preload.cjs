@@ -41,6 +41,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAutoModeConfig: () => ipcRenderer.invoke('get-auto-mode-config'),
   saveAutoModeConfig: (data) => ipcRenderer.invoke('save-auto-mode-config', data),
   autoCloneProject: (projectType) => ipcRenderer.invoke('auto-clone-project', projectType),
+  openAutoModeTerminal: (projectType) => ipcRenderer.invoke('open-auto-mode-terminal', projectType),
+  closeAutoModeTerminal: (projectType) => ipcRenderer.invoke('close-auto-mode-terminal', projectType),
+  clearAutoModeTerminalLogs: (projectType) => ipcRenderer.invoke('clear-auto-mode-terminal-logs', projectType),
+  onAutoModeTerminalClear: (callback) => ipcRenderer.on('auto-mode-terminal-clear', (_event, data) => callback(data)),
+  onAutoModeTerminalClosed: (callback) => ipcRenderer.on('auto-mode-terminal-closed', (_event, data) => callback(data)),
+  removeAutoModeTerminalListeners: () => {
+    ipcRenderer.removeAllListeners('auto-mode-terminal-clear')
+    ipcRenderer.removeAllListeners('auto-mode-terminal-closed')
+  },
   onAutoModeLog: (callback) => ipcRenderer.on('auto-mode-log', (_event, data) => callback(data)),
   onAutoModeProgress: (callback) => ipcRenderer.on('auto-mode-progress', (_event, data) => callback(data)),
   removeAutoModeListeners: () => {

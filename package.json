@@ -1,6 +1,6 @@
 {
   "name": "locale-lol",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "你就用吧老铁，一用一个不吱声 - 多语言处理神器",
   "main": "electron/main.cjs",
   "author": "zhangxiao",
@@ -11,7 +11,8 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:publish": "npm run build && dotenv -- electron-builder --publish always",
-    "start": "cross-env NODE_ENV=development electron ."
+    "start": "cross-env NODE_ENV=development electron .",
+    "setup:git-hooks": "node scripts/setup-git-hooks.cjs"
   },
   "dependencies": {
     "driver.js": "^1.4.0",
