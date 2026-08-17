@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>&#33258;&#21160;&#27169;&#24335;&#32456;&#31471;</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body { overflow: hidden; background: #1e1e1e; color: #dcdfe6; font: 13px/1.6 Consolas, Monaco, 'Courier New', monospace; }
+    .terminal { display: flex; flex-direction: column; height: 100%; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 8px 12px; background: #2d2d2d; border-bottom: 1px solid #303133; }
+    .title { overflow: hidden; color: #67c23a; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    button { min-width: 56px; height: 28px; color: #dcdfe6; cursor: pointer; background: transparent; border: 1px solid #4a4a4a; border-radius: 4px; }
+    button:hover { background: #4a4a4a; }
+    .progress { display: none; padding: 8px 12px; background: #252525; border-bottom: 1px solid #303133; }
+    .progress.is-visible { display: block; }
+    .progress-track { height: 6px; overflow: hidden; background: #3b3b3b; border-radius: 3px; }
+    .progress-value { width: 0; height: 100%; background: #67c23a; transition: width .2s ease; }
+    .progress-text { margin-top: 4px; color: #bfcbd9; font-size: 12px; }
+    .logs { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+    .empty { color: #909399; font-style: italic; }
+    .line { white-space: pre-wrap; word-break: break-all; }
+    .line.error { color: #f56c6c; }
+    .time { margin-right: 8px; color: #909399; }
+    .logs::-webkit-scrollbar { width: 8px; height: 8px; }
+    .logs::-webkit-scrollbar-track { background: #1e1e1e; }
+    .logs::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <main class="terminal">
+    <header class="toolbar">
+      <span id="title" class="title"></span>
+      <button id="clearButton" type="button">&#28165;&#31354;</button>
+    </header>
+    <section id="progress" class="progress">
+      <div class="progress-track"><div id="progressValue" class="progress-value"></div></div>
+      <div id="progressText" class="progress-text"></div>
+    </section>
+    <section id="logs" class="logs"><div id="empty" class="empty">&#31561;&#24453;&#25805;&#20316;...</div></section>
+  </main>
+  <script>
+    const projectType = new URLSearchParams(window.location.search).get('projectType') || '';
+    const labels = { h5: 'H5', pc: 'PC', admin: 'Admin' };
+    const logs = document.getElementById('logs');
+    const empty = document.getElementById('empty');
+    const progress = document.getElementById('progress');
+    const progressValue = document.getElementById('progressValue');
+    const progressText = document.getElementById('progressText');
+    document.getElementById('title').textContent = `Auto Mode Terminal - ${labels[projectType] || projectType.toUpperCase()}`;
+
+    function appendLog(entry) {
+      if (entry.projectType !== projectType) return;
+      empty?.remove();
+      const line = document.createElement('div');
+      line.className = `line${entry.type === 'stderr' ? ' error' : ''}`;
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = `[${new Date().toTimeString().slice(0, 8)}]`;
+      const text = document.createElement('span');
+      text.textContent = entry.data;
+      line.append(time, text);
+      logs.append(line);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function updateProgress(entry) {
+      if (entry.projectType !== projectType) return;
+      progress.classList.add('is-visible');
+      progressValue.style.width = `${Math.max(0, Math.min(100, entry.percent || 0))}%`;
+      progressText.textContent = entry.step || `${entry.percent || 0}%`;
+    }
+
+    function clearTerminal() {
+      logs.replaceChildren();
+      const placeholder = document.createElement('div');
+      placeholder.id = 'empty';
+      placeholder.className = 'empty';
+      placeholder.textContent = '\u7b49\u5f85\u64cd\u4f5c...';
+      logs.append(placeholder);
+      progress.classList.remove('is-visible');
+      progressValue.style.width = '0';
+      progressText.textContent = '';
+    }
+
+    document.getElementById('clearButton').addEventListener('click', () => {
+      window.electronAPI?.clearAutoModeTerminalLogs(projectType);
+    });
+    window.electronAPI?.onAutoModeLog(appendLog);
+    window.electronAPI?.onAutoModeProgress(updateProgress);
+    window.electronAPI?.onAutoModeTerminalClear((entry) => {
+      if (entry.projectType === projectType) clearTerminal();
+    });
+  </script>
+</body>
+</html>
