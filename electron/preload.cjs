@@ -25,6 +25,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectJsonFile: () => ipcRenderer.invoke('select-json-file'),
   selectTargetFile: (filters) => ipcRenderer.invoke('select-target-file', filters),
   mergeLocaleFile: (tempData, type, filePath) => ipcRenderer.invoke('merge-locale-file', tempData, type, filePath),
+  createLocaleFromTemplate: (tempData, type, folderPath, localeCode, templatePath) => ipcRenderer.invoke(
+    'create-locale-from-template',
+    tempData,
+    type,
+    folderPath,
+    localeCode,
+    templatePath
+  ),
   getLangMap: (type) => ipcRenderer.invoke('get-lang-map', type),
   saveLangMap: (data, type) => ipcRenderer.invoke('save-lang-map', data, type),
   batchAddLocale: (dirPath, excludePattern, targetProperty, objectsToAdd, type, strictTranslations) => ipcRenderer.invoke('batch-add-locale', dirPath, excludePattern, targetProperty, objectsToAdd, type, strictTranslations),

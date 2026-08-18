@@ -626,83 +626,859 @@ ipcMain.handle('select-target-file', async (event, filters) => {
   return null
 })
 
+function isJavaScriptIdentifier(value) {
+  return /^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*$/u.test(value)
+}
+
+function serializePcLocaleValue(value, depth = 0) {
+  const indent = '  '
+  const currentIndent = indent.repeat(depth)
+  const childIndent = indent.repeat(depth + 1)
+
+  if (value === null || typeof value !== 'object') {
+    const serializedValue = JSON.stringify(value)
+    return serializedValue === undefined ? 'undefined' : serializedValue
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    return `[\n${value.map(item => `${childIndent}${serializePcLocaleValue(item, depth + 1)}`).join(',\n')}\n${currentIndent}]`
+  }
+
+  const entries = Object.entries(value)
+  if (entries.length === 0) return '{}'
+
+  const serializedEntries = entries.map(([key, childValue]) => {
+    const propertyName = isJavaScriptIdentifier(key) ? key : JSON.stringify(key)
+    return `${childIndent}${propertyName}: ${serializePcLocaleValue(childValue, depth + 1)}`
+  })
+  return `{\n${serializedEntries.join(',\n')}\n${currentIndent}}`
+}
+
+function mergeLocaleFile(tempData, type, filePath) {
+  if (type === 'admin') {
+    mergeAdminLocales(filePath, tempData)
+  } else if (type === 'pc') {
+    // PC 端：读取 TS 文件，合并后写回 TS 格式
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `目标文件不存在: ${filePath}` }
+    }
+    const fileContent = fs.readFileSync(filePath, 'utf-8')
+    const jsonString = fileContent.replace('export default', '').trim()
+    const targetData = new Function(`return ${jsonString}`)()
+
+    const result = deepMerge(targetData, tempData)
+    const outputContent = `export default ${serializePcLocaleValue(result)};`
+    fs.writeFileSync(filePath, outputContent, 'utf-8')
+  } else {
+    // H5: common.uni.* belongs in the uni-app file for the selected language.
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `Target file does not exist: ${filePath}` }
+    }
+
+    const targetFileName = path.basename(filePath)
+    if (path.extname(targetFileName).toLowerCase() !== '.json' || targetFileName.toLowerCase().startsWith('uni-app.')) {
+      return { success: false, error: `Select a primary language file (for example fr.json), not a uni-app file: ${filePath}` }
+    }
+
+    const normalData = {}
+    const incomingUniAppData = {}
+    for (const [key, value] of Object.entries(tempData)) {
+      if (key === 'common.uni' || key.startsWith('common.uni.')) {
+        addUniAppEntries(incomingUniAppData, key, value)
+      } else {
+        normalData[key] = value
+      }
+    }
+
+    // Read and calculate every result before writing either file. This guarantees that
+    // a missing/broken uni-app file cannot leave the normal locale half-updated.
+    const targetRaw = fs.readFileSync(filePath, 'utf-8')
+    const targetData = JSON.parse(targetRaw)
+    const legacyUniAppData = extractAndRemoveUniAppEntries(targetData)
+    const hasUniAppChanges = hasUniAppEntries(legacyUniAppData) || hasUniAppEntries(incomingUniAppData)
+    const normalResult = deepMerge(targetData, normalData)
+
+    let uniAppFilePath
+    let uniAppResult
+    if (hasUniAppChanges) {
+      uniAppFilePath = path.join(path.dirname(filePath), `uni-app.${targetFileName}`)
+      if (!fs.existsSync(uniAppFilePath)) {
+        return { success: false, error: `Uni App target file does not exist: ${uniAppFilePath}` }
+      }
+
+      const uniAppRaw = fs.readFileSync(uniAppFilePath, 'utf-8')
+      const uniAppTargetData = JSON.parse(uniAppRaw)
+      const incorrectlyNestedUniAppData = extractAndRemoveNestedUniAppEntries(uniAppTargetData)
+      // Existing entries moved out of fr.json are retained, while current Excel values win.
+      uniAppResult = deepMerge(
+        deepMerge(
+          deepMerge(uniAppTargetData, incorrectlyNestedUniAppData),
+          legacyUniAppData
+        ),
+        incomingUniAppData
+      )
+    }
+
+    // Write the uni-app sibling first. If the second write ever fails, the normal file
+    // still retains its old entries rather than silently losing common.uni.* translations.
+    if (hasUniAppChanges) {
+      fs.writeFileSync(uniAppFilePath, JSON.stringify(uniAppResult, null, 2), 'utf-8')
+    }
+    fs.writeFileSync(filePath, JSON.stringify(normalResult, null, 2), 'utf-8')
+  }
+
+
+  return { success: true }
+}
+
+function toH5LocaleImportIdentifier(localeCode) {
+  return localeCode
+    .split('-')
+    .filter(Boolean)
+    .map((part, index) => index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+}
+
+function findMatchingBrace(content, openingBraceIndex) {
+  let depth = 0
+  let quote = null
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = openingBraceIndex; index < content.length; index += 1) {
+    const char = content[index]
+    const nextChar = content[index + 1]
+
+    if (inLineComment) {
+      if (char === '\n' || char === '\r') inLineComment = false
+      continue
+    }
+    if (inBlockComment) {
+      if (char === '*' && nextChar === '/') {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+    if (quote) {
+      if (char === '\\') {
+        index += 1
+      } else if (char === quote) {
+        quote = null
+      }
+      continue
+    }
+    if (char === '/' && nextChar === '/') {
+      inLineComment = true
+      index += 1
+      continue
+    }
+    if (char === '/' && nextChar === '*') {
+      inBlockComment = true
+      index += 1
+      continue
+    }
+    if (char === '\'' || char === '"' || char === '`') {
+      quote = char
+      continue
+    }
+    if (char === '{') depth += 1
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+
+  return -1
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function updateH5LocaleIndex(folderPath, localeCode) {
+  const indexPath = path.join(folderPath, 'index.ts')
+  if (!fs.existsSync(indexPath)) {
+    return { warning: `H5 合并已完成，但未更新 index.ts：配置文件丢失（${indexPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(indexPath, 'utf-8')
+  } catch (error) {
+    return { warning: `H5 合并已完成，但读取 index.ts 失败：${error.message}` }
+  }
+
+  const messagesMatch = /\bconst\s+messages\s*=\s*{/.exec(source)
+  if (!messagesMatch) {
+    return { warning: 'H5 合并已完成，但未更新 index.ts：无法识别 const messages = { ... } 配置。' }
+  }
+
+  const openingBraceIndex = source.indexOf('{', messagesMatch.index)
+  const closingBraceIndex = findMatchingBrace(source, openingBraceIndex)
+  if (openingBraceIndex === -1 || closingBraceIndex === -1) {
+    return { warning: 'H5 合并已完成，但未更新 index.ts：messages 配置结构异常。' }
+  }
+
+  const importIdentifier = toH5LocaleImportIdentifier(localeCode)
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(importIdentifier)) {
+    return { warning: `H5 合并已完成，但未更新 index.ts：语言编号“${localeCode}”无法生成有效的导入变量名。` }
+  }
+
+  const messagesBody = source.slice(openingBraceIndex + 1, closingBraceIndex)
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const escapedImportIdentifier = escapeRegExp(importIdentifier)
+  const propertyPattern = new RegExp(`(?:^|[,{\\n])\\s*(?:['"]${escapedLocaleCode}['"]|${escapedImportIdentifier})\\s*:`, 'm')
+  if (propertyPattern.test(messagesBody)) {
+    return { updated: false }
+  }
+
+  const closingLineStart = source.lastIndexOf('\n', closingBraceIndex) + 1
+  const closingIndent = source.slice(closingLineStart, closingBraceIndex).match(/^\s*/)?.[0] || ''
+  const propertyIndent = `${closingIndent}  `
+  const propertyKey = localeCode.includes('-') ? `'${localeCode}'` : localeCode
+  const propertyLine = `${propertyIndent}${propertyKey}: ${importIdentifier},`
+  const bodyWithoutTrailingWhitespace = messagesBody.replace(/\s*$/, '')
+  const normalizedBody = bodyWithoutTrailingWhitespace && !bodyWithoutTrailingWhitespace.endsWith(',')
+    ? `${bodyWithoutTrailingWhitespace},`
+    : bodyWithoutTrailingWhitespace
+  const newMessagesBody = normalizedBody
+    ? `${normalizedBody}\n${propertyLine}\n${closingIndent}`
+    : `\n${propertyLine}\n${closingIndent}`
+  let updatedSource = source.slice(0, openingBraceIndex + 1) + newMessagesBody + source.slice(closingBraceIndex)
+
+  const importPathPattern = new RegExp(`^\\s*import\\s+[^\\r\\n]*?\\s+from\\s+['"]\\./${escapedLocaleCode}\\.json['"]\\s*;?\\s*$`, 'm')
+  const importIdentifierPattern = new RegExp(`^\\s*import\\s+${escapedImportIdentifier}\\b`, 'm')
+  if (!importPathPattern.test(updatedSource) && !importIdentifierPattern.test(updatedSource)) {
+    const importLinePattern = /^[^\S\r\n]*import[^\r\n]*(?:\r?\n|$)/gm
+    const imports = [...updatedSource.matchAll(importLinePattern)]
+    const lastImport = imports.at(-1)
+    const insertAt = lastImport ? lastImport.index + lastImport[0].length : 0
+    const prefix = updatedSource.slice(0, insertAt)
+    const suffix = updatedSource.slice(insertAt)
+    const needsLineBreak = prefix.length > 0 && !/\r?\n$/.test(prefix)
+    updatedSource = `${prefix}${needsLineBreak ? '\n' : ''}import ${importIdentifier} from './${localeCode}.json'\n${suffix}`
+  }
+
+  try {
+    fs.writeFileSync(indexPath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `H5 合并已完成，但写入 index.ts 失败：${error.message}` }
+  }
+}
+
+function getLocaleDisplayName(type, localeCode) {
+  try {
+    const langMapPath = path.join(app.getPath('userData'), `langMap-${type}.json`)
+    const titleKeysPath = getConfigPath()
+    const langMap = fs.existsSync(langMapPath)
+      ? JSON.parse(fs.readFileSync(langMapPath, 'utf-8'))
+      : {}
+    const titleKeys = fs.existsSync(titleKeysPath)
+      ? JSON.parse(fs.readFileSync(titleKeysPath, 'utf-8'))
+      : {}
+    const extension = type === 'h5' ? '.json' : type === 'pc' ? '.ts' : ''
+    const commonCode = langMap[localeCode] || langMap[`${localeCode}${extension}`]
+    const displayName = commonCode ? titleKeys[commonCode] || titleKeys[localeCode] : titleKeys[localeCode]
+
+    // Mapping files are user-maintained. A malformed/missing mapping should never block locale creation.
+    return typeof displayName === 'string' ? displayName.replace(/[\r\n]+/g, ' ').trim() : ''
+  } catch (error) {
+    return ''
+  }
+}
+
+function updatePcLocaleIndex(folderPath, localeCode, displayName = '') {
+  const indexPath = path.join(path.dirname(folderPath), 'index.ts')
+  if (!fs.existsSync(indexPath)) {
+    return { warning: `PC 合并已完成，但未更新 index.ts：配置文件丢失（${indexPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(indexPath, 'utf-8')
+  } catch (error) {
+    return { warning: `PC 合并已完成，但读取 index.ts 失败：${error.message}` }
+  }
+
+  const importIdentifier = toH5LocaleImportIdentifier(localeCode)
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(importIdentifier)) {
+    return { warning: `PC 合并已完成，但未更新 index.ts：语言编号“${localeCode}”无法生成有效的导入变量名。` }
+  }
+
+  const i18nMatch = /\bconst\s+i18n\s*=/.exec(source)
+  if (!i18nMatch) {
+    return { warning: 'PC 合并已完成，但未更新 index.ts：无法识别 const i18n 配置。' }
+  }
+
+  const i18nOpeningBraceIndex = source.indexOf('{', i18nMatch.index)
+  const i18nClosingBraceIndex = findMatchingBrace(source, i18nOpeningBraceIndex)
+  if (i18nOpeningBraceIndex === -1 || i18nClosingBraceIndex === -1) {
+    return { warning: 'PC 合并已完成，但未更新 index.ts：i18n 配置结构异常。' }
+  }
+
+  const i18nBody = source.slice(i18nOpeningBraceIndex + 1, i18nClosingBraceIndex)
+  const messagesMatch = /\bmessages\s*:\s*{/.exec(i18nBody)
+  if (!messagesMatch) {
+    return { warning: 'PC 合并已完成，但未更新 index.ts：无法识别 i18n.messages 配置。' }
+  }
+
+  const messagesStartIndex = i18nOpeningBraceIndex + 1 + messagesMatch.index
+  const messagesOpeningBraceIndex = source.indexOf('{', messagesStartIndex)
+  const messagesClosingBraceIndex = findMatchingBrace(source, messagesOpeningBraceIndex)
+  if (messagesOpeningBraceIndex === -1 || messagesClosingBraceIndex === -1 || messagesClosingBraceIndex > i18nClosingBraceIndex) {
+    return { warning: 'PC 合并已完成，但未更新 index.ts：messages 配置结构异常。' }
+  }
+
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const escapedImportIdentifier = escapeRegExp(importIdentifier)
+  const messagesBody = source.slice(messagesOpeningBraceIndex + 1, messagesClosingBraceIndex)
+  const propertyPattern = new RegExp(
+    `(?:^|[,{\\n])\\s*(?:['"]${escapedLocaleCode}['"]\\s*:|${escapedImportIdentifier}(?:\\s*:|\\s*(?=,|$)))`,
+    'm'
+  )
+  const importPathPattern = new RegExp(
+    `^\\s*import\\s+[^\\r\\n]*?\\s+from\\s+['"]\\./${escapedLocaleCode}['"]\\s*;?\\s*(?://.*)?$`,
+    'm'
+  )
+  const importIdentifierPattern = new RegExp(`^\\s*import\\s+${escapedImportIdentifier}\\b`, 'm')
+
+  // Existing language registration takes precedence. Do not try to partially rebuild user-maintained config.
+  if (propertyPattern.test(messagesBody) || importPathPattern.test(source)) {
+    return { updated: false }
+  }
+  if (importIdentifierPattern.test(source)) {
+    return { warning: `PC 合并已完成，但未更新 index.ts：导入变量“${importIdentifier}”已被其他配置占用。` }
+  }
+
+  const closingLineStart = source.lastIndexOf('\n', messagesClosingBraceIndex) + 1
+  const closingIndent = source.slice(closingLineStart, messagesClosingBraceIndex).match(/^\s*/)?.[0] || ''
+  const propertyIndent = `${closingIndent}  `
+  const propertyLine = localeCode.includes('-')
+    ? `${propertyIndent}'${localeCode}': ${importIdentifier},`
+    : `${propertyIndent}${importIdentifier},`
+  const bodyWithoutTrailingWhitespace = messagesBody.replace(/\s*$/, '')
+  const normalizedBody = bodyWithoutTrailingWhitespace && !bodyWithoutTrailingWhitespace.endsWith(',')
+    ? `${bodyWithoutTrailingWhitespace},`
+    : bodyWithoutTrailingWhitespace
+  const newMessagesBody = normalizedBody
+    ? `${normalizedBody}\n${propertyLine}\n${closingIndent}`
+    : `\n${propertyLine}\n${closingIndent}`
+  let updatedSource = source.slice(0, messagesOpeningBraceIndex + 1) + newMessagesBody + source.slice(messagesClosingBraceIndex)
+
+  const comment = displayName ? ` // ${displayName}` : ''
+  const importLinePattern = /^[^\S\r\n]*import[^\r\n]*(?:\r?\n|$)/gm
+  const imports = [...updatedSource.matchAll(importLinePattern)]
+  const lastImport = imports.at(-1)
+  const insertAt = lastImport ? lastImport.index + lastImport[0].length : 0
+  const prefix = updatedSource.slice(0, insertAt)
+  const suffix = updatedSource.slice(insertAt)
+  const needsLineBreak = prefix.length > 0 && !/\r?\n$/.test(prefix)
+  updatedSource = `${prefix}${needsLineBreak ? '\n' : ''}import ${importIdentifier} from "./${path.basename(folderPath)}/${localeCode}";${comment}\n${suffix}`
+
+  try {
+    fs.writeFileSync(indexPath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `PC 合并已完成，但写入 index.ts 失败：${error.message}` }
+  }
+}
+
+function findExistingFileInParentDirectories(folderPath, fileName) {
+  let currentDirectory = path.resolve(folderPath)
+  const rootDirectory = path.parse(currentDirectory).root
+
+  while (currentDirectory !== rootDirectory) {
+    currentDirectory = path.dirname(currentDirectory)
+    const candidatePath = path.join(currentDirectory, fileName)
+    if (fs.existsSync(candidatePath)) return candidatePath
+  }
+
+  return null
+}
+
+function updatePcAppVue(folderPath, localeCode, displayName = '') {
+  // PC locale folders may be nested, such as src/languages/locales.
+  const appVuePath = findExistingFileInParentDirectories(folderPath, 'App.vue')
+  if (!appVuePath) {
+    return { warning: `PC 合并已完成，但未更新 App.vue：未在多语言目录的上级目录中找到 App.vue（${folderPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(appVuePath, 'utf-8')
+  } catch (error) {
+    return { warning: `PC 合并已完成，但读取 App.vue 失败：${error.message}` }
+  }
+
+  const importIdentifier = toH5LocaleImportIdentifier(localeCode)
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(importIdentifier)) {
+    return { warning: `PC 合并已完成，但未更新 App.vue：语言编号“${localeCode}”无法生成有效的导入变量名。` }
+  }
+
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const escapedImportIdentifier = escapeRegExp(importIdentifier)
+  const importPathPattern = new RegExp(
+    `^\\s*import\\s+[^\\r\\n]*?\\s+from\\s+['"]element-plus/es/locale/lang/${escapedLocaleCode}['"]\\s*;?\\s*(?://.*)?$`,
+    'm'
+  )
+  const importIdentifierPattern = new RegExp(`^\\s*import\\s+${escapedImportIdentifier}\\b`, 'm')
+  const localeIfPattern = new RegExp(`\\bif\\s*\\(\\s*code\\s*={2,3}\\s*['"]${escapedLocaleCode}['"]\\s*\\)\\s*return\\s+[^;\\r\\n]+;?`, 'g')
+
+  // One existing registration is treated as user-managed and is not duplicated or altered.
+  if (importPathPattern.test(source) || localeIfPattern.test(source)) {
+    return { updated: false }
+  }
+  if (importIdentifierPattern.test(source)) {
+    return { warning: `PC 合并已完成，但未更新 App.vue：导入变量“${importIdentifier}”已被其他配置占用。` }
+  }
+
+  const localeMatch = /\bconst\s+locale\s*=/.exec(source)
+  if (!localeMatch) {
+    return { warning: 'PC 合并已完成，但未更新 App.vue：无法识别 const locale 计算属性。' }
+  }
+
+  const localeOpeningBraceIndex = source.indexOf('{', localeMatch.index)
+  const localeClosingBraceIndex = findMatchingBrace(source, localeOpeningBraceIndex)
+  if (localeOpeningBraceIndex === -1 || localeClosingBraceIndex === -1) {
+    return { warning: 'PC 合并已完成，但未更新 App.vue：locale 计算属性结构异常。' }
+  }
+
+  const localeBodyStart = localeOpeningBraceIndex + 1
+  const localeBody = source.slice(localeBodyStart, localeClosingBraceIndex)
+  const codeIfPattern = /\bif\s*\(\s*code\s*={2,3}\s*['"][^'"]+['"]\s*\)\s*return\s+[^;\r\n]+;?/g
+  const codeIfs = [...localeBody.matchAll(codeIfPattern)]
+  if (codeIfs.length === 0) {
+    return { warning: 'PC 合并已完成，但未更新 App.vue：未找到 locale 计算属性中的语言 if 配置。' }
+  }
+
+  const lastCodeIf = codeIfs.at(-1)
+  const conditionEndIndex = localeBodyStart + lastCodeIf.index + lastCodeIf[0].length
+  const lineStart = source.lastIndexOf('\n', conditionEndIndex) + 1
+  const lineIndent = source.slice(lineStart, conditionEndIndex).match(/^\s*/)?.[0] || ''
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  let updatedSource = `${source.slice(0, conditionEndIndex)}${newline}${lineIndent}if (code == "${localeCode}") return ${importIdentifier};${source.slice(conditionEndIndex)}`
+
+  const comment = displayName ? ` // ${displayName}` : ''
+  const importLinePattern = /^[^\S\r\n]*import[^\r\n]*(?:\r?\n|$)/gm
+  const imports = [...updatedSource.matchAll(importLinePattern)]
+  const lastImport = imports.at(-1)
+  const insertAt = lastImport ? lastImport.index + lastImport[0].length : 0
+  const prefix = updatedSource.slice(0, insertAt)
+  const suffix = updatedSource.slice(insertAt)
+  const needsLineBreak = prefix.length > 0 && !/\r?\n$/.test(prefix)
+  updatedSource = `${prefix}${needsLineBreak ? newline : ''}import ${importIdentifier} from "element-plus/es/locale/lang/${localeCode}";${comment}${newline}${suffix}`
+
+  try {
+    fs.writeFileSync(appVuePath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `PC 合并已完成，但写入 App.vue 失败：${error.message}` }
+  }
+}
+
+function findExistingRelativeFileInParentDirectories(folderPath, relativeFilePath) {
+  let currentDirectory = path.resolve(folderPath)
+  const rootDirectory = path.parse(currentDirectory).root
+
+  while (currentDirectory !== rootDirectory) {
+    currentDirectory = path.dirname(currentDirectory)
+    const candidatePath = path.join(currentDirectory, relativeFilePath)
+    if (fs.existsSync(candidatePath)) return candidatePath
+  }
+
+  return null
+}
+
+function updateAdminAppVue(folderPath, localeCode, displayName = '') {
+  const appVuePath = findExistingFileInParentDirectories(folderPath, 'App.vue')
+  if (!appVuePath) {
+    return { warning: `Admin 合并已完成，但未更新 App.vue：未在多语言目录的上级目录中找到 App.vue（${folderPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(appVuePath, 'utf-8')
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但读取 App.vue 失败：${error.message}` }
+  }
+
+  const importIdentifier = toH5LocaleImportIdentifier(localeCode)
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(importIdentifier)) {
+    return { warning: `Admin 合并已完成，但未更新 App.vue：语言编号“${localeCode}”无法生成有效的导入变量名。` }
+  }
+
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const escapedImportIdentifier = escapeRegExp(importIdentifier)
+  const importPathPattern = new RegExp(
+    `^\\s*import\\s+[^\\r\\n]*?\\s+from\\s+['"]element-plus/es/locale/lang/${escapedLocaleCode}['"]\\s*;?\\s*(?://.*)?$`,
+    'm'
+  )
+  const importIdentifierPattern = new RegExp(`^\\s*import\\s+${escapedImportIdentifier}\\b`, 'm')
+  const localeIfPattern = new RegExp(`\\bif\\s*\\(\\s*[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*\\s*={2,3}\\s*['"]${escapedLocaleCode}['"]\\s*\\)\\s*return\\s+[^;\\r\\n]+;?`, 'g')
+
+  if (importPathPattern.test(source) || localeIfPattern.test(source)) {
+    return { updated: false }
+  }
+  if (importIdentifierPattern.test(source)) {
+    return { warning: `Admin 合并已完成，但未更新 App.vue：导入变量“${importIdentifier}”已被其他配置占用。` }
+  }
+
+  const localeMatch = /\bconst\s+locale\s*=/.exec(source)
+  if (!localeMatch) {
+    return { warning: 'Admin 合并已完成，但未更新 App.vue：无法识别 const locale 计算属性。' }
+  }
+
+  const localeOpeningBraceIndex = source.indexOf('{', localeMatch.index)
+  const localeClosingBraceIndex = findMatchingBrace(source, localeOpeningBraceIndex)
+  if (localeOpeningBraceIndex === -1 || localeClosingBraceIndex === -1) {
+    return { warning: 'Admin 合并已完成，但未更新 App.vue：locale 计算属性结构异常。' }
+  }
+
+  const localeBodyStart = localeOpeningBraceIndex + 1
+  const localeBody = source.slice(localeBodyStart, localeClosingBraceIndex)
+  const codeIfPattern = /\bif\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*(={2,3})\s*(['"])[^'"]+\3\s*\)\s*return\s+[^;\r\n]+;?/g
+  const codeIfs = [...localeBody.matchAll(codeIfPattern)]
+  if (codeIfs.length === 0) {
+    return { warning: 'Admin 合并已完成，但未更新 App.vue：未找到 locale 计算属性中的语言 if 配置。' }
+  }
+
+  const lastCodeIf = codeIfs.at(-1)
+  const conditionSubject = lastCodeIf[1]
+  const conditionOperator = lastCodeIf[2]
+  const conditionEndIndex = localeBodyStart + lastCodeIf.index + lastCodeIf[0].length
+  const lineStart = source.lastIndexOf('\n', conditionEndIndex) + 1
+  const lineIndent = source.slice(lineStart, conditionEndIndex).match(/^\s*/)?.[0] || ''
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  let updatedSource = `${source.slice(0, conditionEndIndex)}${newline}${lineIndent}if (${conditionSubject} ${conditionOperator} "${localeCode}") return ${importIdentifier};${source.slice(conditionEndIndex)}`
+
+  const comment = displayName ? ` // ${displayName}` : ''
+  const importLinePattern = /^[^\S\r\n]*import[^\r\n]*(?:\r?\n|$)/gm
+  const imports = [...updatedSource.matchAll(importLinePattern)]
+  const lastImport = imports.at(-1)
+  const insertAt = lastImport ? lastImport.index + lastImport[0].length : 0
+  const prefix = updatedSource.slice(0, insertAt)
+  const suffix = updatedSource.slice(insertAt)
+  const needsLineBreak = prefix.length > 0 && !/\r?\n$/.test(prefix)
+  updatedSource = `${prefix}${needsLineBreak ? newline : ''}import ${importIdentifier} from "element-plus/es/locale/lang/${localeCode}";${comment}${newline}${suffix}`
+
+  try {
+    fs.writeFileSync(appVuePath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但写入 App.vue 失败：${error.message}` }
+  }
+}
+
+function findMatchingSquareBracket(content, openingBracketIndex) {
+  let depth = 0
+  let quote = null
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = openingBracketIndex; index < content.length; index += 1) {
+    const char = content[index]
+    const nextChar = content[index + 1]
+
+    if (inLineComment) {
+      if (char === '\n' || char === '\r') inLineComment = false
+      continue
+    }
+    if (inBlockComment) {
+      if (char === '*' && nextChar === '/') {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+    if (quote) {
+      if (char === '\\') {
+        index += 1
+      } else if (char === quote) {
+        quote = null
+      }
+      continue
+    }
+    if (char === '/' && nextChar === '/') {
+      inLineComment = true
+      index += 1
+      continue
+    }
+    if (char === '/' && nextChar === '*') {
+      inBlockComment = true
+      index += 1
+      continue
+    }
+    if (char === '\'' || char === '"' || char === '`') {
+      quote = char
+      continue
+    }
+    if (char === '[') depth += 1
+    if (char === ']') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+
+  return -1
+}
+
+function updateAdminLanguageList(folderPath, localeCode, displayName = '') {
+  const commonEnumPath = findExistingRelativeFileInParentDirectories(folderPath, path.join('enums', 'commonEnum.ts'))
+  if (!commonEnumPath) {
+    return { warning: `Admin 合并已完成，但未更新 src/enums/commonEnum.ts：配置文件丢失（${folderPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(commonEnumPath, 'utf-8')
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但读取 src/enums/commonEnum.ts 失败：${error.message}` }
+  }
+
+  const languageListMatch = /\bexport\s+const\s+languageList(?:\s*:\s*[^=]+)?\s*=\s*\[/.exec(source)
+  if (!languageListMatch) {
+    return { warning: 'Admin 合并已完成，但未更新 src/enums/commonEnum.ts：无法识别 export const languageList 配置。' }
+  }
+
+  const openingBracketIndex = source.indexOf('[', languageListMatch.index)
+  const closingBracketIndex = findMatchingSquareBracket(source, openingBracketIndex)
+  if (openingBracketIndex === -1 || closingBracketIndex === -1) {
+    return { warning: 'Admin 合并已完成，但未更新 src/enums/commonEnum.ts：languageList 配置结构异常。' }
+  }
+
+  const listBody = source.slice(openingBracketIndex + 1, closingBracketIndex)
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const existingValuePattern = new RegExp(`\\bvalue\\s*:\\s*['"]${escapedLocaleCode}['"]`)
+  if (existingValuePattern.test(listBody)) {
+    return { updated: false }
+  }
+
+  const closingLineStart = source.lastIndexOf('\n', closingBracketIndex) + 1
+  const closingIndent = source.slice(closingLineStart, closingBracketIndex).match(/^\s*/)?.[0] || ''
+  const itemIndent = `${closingIndent}  `
+  const languageLabel = displayName || localeCode
+  const languageItem = `${itemIndent}{ label: ${JSON.stringify(languageLabel)}, value: ${JSON.stringify(localeCode)}, code: ${JSON.stringify(localeCode.toUpperCase())} }`
+  const bodyWithoutTrailingWhitespace = listBody.replace(/\s*$/, '')
+  const normalizedBody = bodyWithoutTrailingWhitespace && !bodyWithoutTrailingWhitespace.endsWith(',')
+    ? `${bodyWithoutTrailingWhitespace},`
+    : bodyWithoutTrailingWhitespace
+  const newListBody = normalizedBody
+    ? `${normalizedBody}\n${languageItem}\n${closingIndent}`
+    : `\n${languageItem}\n${closingIndent}`
+  const updatedSource = source.slice(0, openingBracketIndex + 1) + newListBody + source.slice(closingBracketIndex)
+
+  try {
+    fs.writeFileSync(commonEnumPath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但写入 src/enums/commonEnum.ts 失败：${error.message}` }
+  }
+}
+
+function updateAdminI18nLang(folderPath, localeCode) {
+  const utilsIndexPath = findExistingRelativeFileInParentDirectories(folderPath, path.join('utils', 'index.ts'))
+  if (!utilsIndexPath) {
+    return { warning: `Admin 合并已完成，但未更新 src/utils/index.ts：配置文件丢失（${folderPath}）。` }
+  }
+
+  let source
+  try {
+    source = fs.readFileSync(utilsIndexPath, 'utf-8')
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但读取 src/utils/index.ts 失败：${error.message}` }
+  }
+
+  const functionMatch = /\bexport\s+function\s+getI18nLang\s*\([^)]*\)\s*{/.exec(source)
+  if (!functionMatch) {
+    return { warning: 'Admin 合并已完成，但未更新 src/utils/index.ts：无法识别 export function getI18nLang 配置。' }
+  }
+
+  const functionOpeningBraceIndex = source.indexOf('{', functionMatch.index)
+  const functionClosingBraceIndex = findMatchingBrace(source, functionOpeningBraceIndex)
+  if (functionOpeningBraceIndex === -1 || functionClosingBraceIndex === -1) {
+    return { warning: 'Admin 合并已完成，但未更新 src/utils/index.ts：getI18nLang 函数结构异常。' }
+  }
+
+  const functionBodyStart = functionOpeningBraceIndex + 1
+  const functionBody = source.slice(functionBodyStart, functionClosingBraceIndex)
+  const switchMatch = /\bswitch\s*\([^)]*\)\s*{/.exec(functionBody)
+  if (!switchMatch) {
+    return { warning: 'Admin 合并已完成，但未更新 src/utils/index.ts：未找到 getI18nLang 中的 switch 配置。' }
+  }
+
+  const switchOpeningBraceIndex = source.indexOf('{', functionBodyStart + switchMatch.index)
+  const switchClosingBraceIndex = findMatchingBrace(source, switchOpeningBraceIndex)
+  if (switchOpeningBraceIndex === -1 || switchClosingBraceIndex === -1) {
+    return { warning: 'Admin 合并已完成，但未更新 src/utils/index.ts：getI18nLang 的 switch 结构异常。' }
+  }
+
+  const switchBody = source.slice(switchOpeningBraceIndex + 1, switchClosingBraceIndex)
+  const escapedLocaleCode = escapeRegExp(localeCode)
+  const existingCasePattern = new RegExp(`\\bcase\\s*(['"])${escapedLocaleCode}\\1\\s*:`)
+  if (existingCasePattern.test(switchBody)) {
+    return { updated: false }
+  }
+
+  const defaultMatch = /\bdefault\s*:/.exec(switchBody)
+  if (!defaultMatch) {
+    return { warning: 'Admin 合并已完成，但未更新 src/utils/index.ts：未找到 getI18nLang 中的 default 分支。' }
+  }
+
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  const defaultStartIndex = switchOpeningBraceIndex + 1 + defaultMatch.index
+  const defaultLineStart = source.lastIndexOf('\n', defaultStartIndex) + 1
+  const caseIndent = source.slice(defaultLineStart, defaultStartIndex).match(/^\s*/)?.[0] || '    '
+  const codeIndent = `${caseIndent}  `
+  const caseBlock = `${caseIndent}case "${localeCode}":${newline}${codeIndent}code = "${localeCode}";${newline}${codeIndent}break;${newline}`
+  const updatedSource = `${source.slice(0, defaultLineStart)}${caseBlock}${source.slice(defaultLineStart)}`
+
+  try {
+    fs.writeFileSync(utilsIndexPath, updatedSource, 'utf-8')
+    return { updated: true }
+  } catch (error) {
+    return { warning: `Admin 合并已完成，但写入 src/utils/index.ts 失败：${error.message}` }
+  }
+}
+
+function validateNewLocaleCode(localeCode) {
+  if (!/^[a-z0-9_-]+$/.test(localeCode)) {
+    throw new Error('Language code may contain only lowercase English letters, numbers, hyphens, and underscores.')
+  }
+}
+
+function isDirectChildPath(folderPath, childPath) {
+  return path.dirname(path.resolve(childPath)) === path.resolve(folderPath)
+}
+
+function getNewLocaleConflictNames(type, localeCode) {
+  if (type === 'h5') return [localeCode, `${localeCode}.json`, `uni-app.${localeCode}.json`]
+  if (type === 'pc') return [localeCode, `${localeCode}.ts`]
+  return [localeCode]
+}
+
+function assertNewLocaleTargetAvailable(type, folderPath, localeCode) {
+  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    throw new Error(`Target folder does not exist: ${folderPath}`)
+  }
+
+  const existingNames = new Set(fs.readdirSync(folderPath).map(name => name.toLowerCase()))
+  const conflict = getNewLocaleConflictNames(type, localeCode).find(name => existingNames.has(name.toLowerCase()))
+  if (conflict) {
+    throw new Error(`A locale file or folder already exists for language code "${localeCode}": ${conflict}`)
+  }
+}
+
+function assertTemplateLocale(type, folderPath, templatePath) {
+  if (!templatePath || !fs.existsSync(templatePath) || !isDirectChildPath(folderPath, templatePath)) {
+    throw new Error('Please select a valid template language from the target folder.')
+  }
+
+  const stats = fs.statSync(templatePath)
+  const fileName = path.basename(templatePath)
+  if (type === 'admin') {
+    if (!stats.isDirectory()) throw new Error('Admin template language must be a folder.')
+    return
+  }
+
+  const extension = type === 'h5' ? '.json' : '.ts'
+  if (!stats.isFile() || path.extname(fileName).toLowerCase() !== extension ||
+      (type === 'h5' && fileName.toLowerCase().startsWith('uni-app.'))) {
+    throw new Error(`Template language must be a ${extension} locale file.`)
+  }
+}
+
+function createLocaleFromTemplate(tempData, type, folderPath, localeCode, templatePath) {
+  if (!['h5', 'pc', 'admin'].includes(type)) {
+    throw new Error('Invalid locale type.')
+  }
+
+  const normalizedCode = String(localeCode || '').trim()
+  const normalizedFolderPath = path.resolve(folderPath || '')
+  const normalizedTemplatePath = path.resolve(templatePath || '')
+  validateNewLocaleCode(normalizedCode)
+  assertNewLocaleTargetAvailable(type, normalizedFolderPath, normalizedCode)
+  assertTemplateLocale(type, normalizedFolderPath, normalizedTemplatePath)
+
+  const createdPaths = []
+  try {
+    let targetPath
+    if (type === 'admin') {
+      targetPath = path.join(normalizedFolderPath, normalizedCode)
+      fs.cpSync(normalizedTemplatePath, targetPath, { recursive: true, force: false, errorOnExist: true })
+      createdPaths.push(targetPath)
+    } else {
+      const extension = type === 'h5' ? '.json' : '.ts'
+      targetPath = path.join(normalizedFolderPath, `${normalizedCode}${extension}`)
+      fs.copyFileSync(normalizedTemplatePath, targetPath, fs.constants.COPYFILE_EXCL)
+      createdPaths.push(targetPath)
+
+      if (type === 'h5') {
+        const templateUniAppPath = path.join(normalizedFolderPath, `uni-app.${path.basename(normalizedTemplatePath)}`)
+        const targetUniAppPath = path.join(normalizedFolderPath, `uni-app.${normalizedCode}.json`)
+        const requiresUniAppFile = Object.keys(tempData).some(key => key === 'common.uni' || key.startsWith('common.uni.'))
+
+        if (fs.existsSync(templateUniAppPath)) {
+          fs.copyFileSync(templateUniAppPath, targetUniAppPath, fs.constants.COPYFILE_EXCL)
+          createdPaths.push(targetUniAppPath)
+        } else if (requiresUniAppFile) {
+          throw new Error(`The selected H5 template is missing its uni-app file: ${templateUniAppPath}`)
+        }
+      }
+    }
+
+    const mergeResult = mergeLocaleFile(tempData, type, targetPath)
+    if (!mergeResult.success) throw new Error(mergeResult.error || 'Failed to merge locale data.')
+
+    const warnings = []
+    if (type === 'h5') {
+      const indexResult = updateH5LocaleIndex(normalizedFolderPath, normalizedCode)
+      if (indexResult.warning) warnings.push(indexResult.warning)
+    } else if (type === 'pc') {
+      const displayName = getLocaleDisplayName('pc', normalizedCode)
+      const indexResult = updatePcLocaleIndex(normalizedFolderPath, normalizedCode, displayName)
+      const appVueResult = updatePcAppVue(normalizedFolderPath, normalizedCode, displayName)
+      if (indexResult.warning) warnings.push(indexResult.warning)
+      if (appVueResult.warning) warnings.push(appVueResult.warning)
+    } else if (type === 'admin') {
+      const displayName = getLocaleDisplayName('admin', normalizedCode) || normalizedCode
+      const appVueResult = updateAdminAppVue(normalizedFolderPath, normalizedCode, displayName)
+      const languageListResult = updateAdminLanguageList(normalizedFolderPath, normalizedCode, displayName)
+      const i18nLangResult = updateAdminI18nLang(normalizedFolderPath, normalizedCode)
+      if (appVueResult.warning) warnings.push(appVueResult.warning)
+      if (languageListResult.warning) warnings.push(languageListResult.warning)
+      if (i18nLangResult.warning) warnings.push(i18nLangResult.warning)
+    }
+
+    return { success: true, targetPath, warning: warnings.join('\n') || undefined }
+  } catch (error) {
+    createdPaths.reverse().forEach(createdPath => {
+      try {
+        fs.rmSync(createdPath, { recursive: true, force: true })
+      } catch (cleanupError) {
+        console.error('Failed to clean up newly created locale path:', cleanupError)
+      }
+    })
+    throw error
+  }
+}
+
 ipcMain.handle('merge-locale-file', async (event, tempDataStr, type, filePath) => {
   try {
     const tempData = JSON.parse(tempDataStr)
 
-    if (type === 'admin') {
-      mergeAdminLocales(filePath, tempData)
-    } else if (type === 'pc') {
-      // PC 端：读取 TS 文件，合并后写回 TS 格式
-      if (!fs.existsSync(filePath)) {
-        return { success: false, error: `目标文件不存在: ${filePath}` }
-      }
-      const fileContent = fs.readFileSync(filePath, 'utf-8')
-      const jsonString = fileContent.replace('export default', '').trim()
-      const targetData = new Function(`return ${jsonString}`)()
+    return mergeLocaleFile(tempData, type, filePath)
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
 
-      const result = deepMerge(targetData, tempData)
-      const outputContent = `export default ${JSON.stringify(result, null, 2)};`
-      fs.writeFileSync(filePath, outputContent, 'utf-8')
-    } else {
-      // H5: common.uni.* belongs in the uni-app file for the selected language.
-      if (!fs.existsSync(filePath)) {
-        return { success: false, error: `Target file does not exist: ${filePath}` }
-      }
-
-      const targetFileName = path.basename(filePath)
-      if (path.extname(targetFileName).toLowerCase() !== '.json' || targetFileName.toLowerCase().startsWith('uni-app.')) {
-        return { success: false, error: `Select a primary language file (for example fr.json), not a uni-app file: ${filePath}` }
-      }
-
-      const normalData = {}
-      const incomingUniAppData = {}
-      for (const [key, value] of Object.entries(tempData)) {
-        if (key === 'common.uni' || key.startsWith('common.uni.')) {
-          addUniAppEntries(incomingUniAppData, key, value)
-        } else {
-          normalData[key] = value
-        }
-      }
-
-      // Read and calculate every result before writing either file. This guarantees that
-      // a missing/broken uni-app file cannot leave the normal locale half-updated.
-      const targetRaw = fs.readFileSync(filePath, 'utf-8')
-      const targetData = JSON.parse(targetRaw)
-      const legacyUniAppData = extractAndRemoveUniAppEntries(targetData)
-      const hasUniAppChanges = hasUniAppEntries(legacyUniAppData) || hasUniAppEntries(incomingUniAppData)
-      const normalResult = deepMerge(targetData, normalData)
-
-      let uniAppFilePath
-      let uniAppResult
-      if (hasUniAppChanges) {
-        uniAppFilePath = path.join(path.dirname(filePath), `uni-app.${targetFileName}`)
-        if (!fs.existsSync(uniAppFilePath)) {
-          return { success: false, error: `Uni App target file does not exist: ${uniAppFilePath}` }
-        }
-
-        const uniAppRaw = fs.readFileSync(uniAppFilePath, 'utf-8')
-        const uniAppTargetData = JSON.parse(uniAppRaw)
-        const incorrectlyNestedUniAppData = extractAndRemoveNestedUniAppEntries(uniAppTargetData)
-        // Existing entries moved out of fr.json are retained, while current Excel values win.
-        uniAppResult = deepMerge(
-          deepMerge(
-            deepMerge(uniAppTargetData, incorrectlyNestedUniAppData),
-            legacyUniAppData
-          ),
-          incomingUniAppData
-        )
-      }
-
-      // Write the uni-app sibling first. If the second write ever fails, the normal file
-      // still retains its old entries rather than silently losing common.uni.* translations.
-      if (hasUniAppChanges) {
-        fs.writeFileSync(uniAppFilePath, JSON.stringify(uniAppResult, null, 2), 'utf-8')
-      }
-      fs.writeFileSync(filePath, JSON.stringify(normalResult, null, 2), 'utf-8')
-    }
-
-    return { success: true }
+ipcMain.handle('create-locale-from-template', async (event, tempDataStr, type, folderPath, localeCode, templatePath) => {
+  try {
+    const tempData = JSON.parse(tempDataStr)
+    return createLocaleFromTemplate(tempData, type, folderPath, localeCode, templatePath)
   } catch (error) {
     return { success: false, error: error.message }
   }

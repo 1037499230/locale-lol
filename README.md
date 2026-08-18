@@ -13,7 +13,7 @@
 | **多语言工具** | ✅ | ✅ | ✅ | 提取/合并多语言文件，导出对照表或筛选缺失项 |
 | **批量新增词条** | ✅ | ✅ | ✅ | 通过 JSON 模板批量添加多语言到所有语言文件 |
 | **PC ↔ H5 同步** | ✅ | ✅ | - | 跨端同步指定 key，自动处理语言编码差异 |
-| **表格转JSON** | ✅ | ✅ | ✅ | 从 Excel 提取数据生成 JSON，并智能合并到项目文件 |
+| **表格转 JSON / 新建语言** | ✅ | ✅ | ✅ | 从 Excel 提取多语言数据，支持合并到已有语言或基于模板新建语言，并自动补全项目配置 |
 | **表格键值管理** | ✅ | ✅ | ✅ | 持久化管理表格列名映射配置 |
 | **环境配置** | - | - | - | 持久化存储各端项目路径，自动填入无需重复选择 |
 | **自动模式** | ✅ | ✅ | ✅ | 自动 clone/pull 远程仓库，切换分支，一键获取最新多语言文件 |
@@ -44,11 +44,23 @@
 - 可视化同步结果：成功/失败、覆盖/新增、同步值、错误信息
 - **语言映射表持久化**：可编辑 H5↔PC 编码映射，改一次全局生效
 
-#### 4. 表格转 JSON / 智能合并
-- 上传 Excel 文件，自动解析表头
-- 选择键列和值列，提取数据
-- **H5/PC 端**：支持合并到指定的 JSON 或 TS 文件
-- **Admin 端**：支持选择语言文件夹，根据 Key 的路径结构（如 `module.sub.file.prop`）自动定位文件并写入
+#### 4. 表格转 JSON / 智能合并与新建语言
+- 上传 Excel 文件，自动解析表头，选择键列与语言值列后生成 JSON 数据
+- 目标文件夹会优先读取环境配置，也可以重新手动选择
+- 支持两种合并模式：
+  1. **合并到已有多语言文件**：从目标文件夹的有效语言文件（或语言文件夹）中单选目标并合并
+  2. **新建多语言文件（文件夹）**：输入新语言编号，选择模板语言，复制模板后再完成合并
+- 新建语言编号仅允许小写英文字母、数字、`-` 和 `_`；程序会拦截同名的文件或文件夹
+- 模板语言和目标语言列表会根据当前项目的语言映射与表格键值管理显示中文名称；无映射项的文件不在列表中展示
+
+**端侧智能处理**
+
+- **H5 (JSON)**：`common.uni.*` 会自动分流到当前语言对应的 `uni-app.<语言编号>.json`，不写入普通的 `<语言编号>.json`。可识别旧的嵌套 `common.uni` 结构并正确合并。新建时会一并复制 `uni-app` 文件并更新同级 `index.ts`。
+- **PC (TS)**：合并后保持 TS 格式；合法属性名去除引号，不合法属性名保留引号。新建成功后会自动更新语言目录上级的 `index.ts` 和 `src/App.vue`。
+- **Admin (语言文件夹)**：支持按语言文件夹复制与合并。新建成功后会自动尝试更新 `src/App.vue`、`src/enums/commonEnum.ts` 中的 `languageList` 以及 `src/utils/index.ts` 中的 `getI18nLang` 分支。
+  - `languageList.label` 优先使用表格键值管理中的中文映射；未找到时回退为语言编号本身。
+- 若项目配置文件不存在或结构无法识别，语言文件的新建与合并仍会完成，并通过提示告知未更新的项目配置。
+- 上述项目配置自动更新仅在**新建多语言文件（文件夹）**模式下执行；合并到已有语言时不会修改项目入口配置。
 
 #### 5. 表格键值管理
 - 自定义 Excel 导出时的列名映射
@@ -79,9 +91,17 @@
   - H5：`src/locale`
   - PC：`src/languages/locales`
   - Admin：`src/languages/locales`
-- 内置 **终端控制台**，实时显示 git 命令输出和进度条
+- 自动模式右侧提供**显示终端**开关（默认关闭）；打开后以独立窗口实时显示 Git 命令输出和进度，可在整个屏幕范围拖动、缩放、最小化或最大化
 - 认证方式依赖本机已配置的 SSH 密钥
 - **两套配置完全隔离**：手动模式和自动模式的路径配置互不影响
+
+## 🆕 近期更新
+
+- 表格工具新增“合并到已有多语言”与“新建多语言”两种模式，支持模板复制、重名与合并。
+- 优化 H5 `common.uni.*` 语言分流，自动写入正确的 `uni-app.<语言编号>.json`。
+- 新建 PC/Admin 语言后可自动补充对应的语言注册与 Element Plus 语言包配置。
+- Admin 新建语言会同步更新 `App.vue`、`languageList` 与 `getI18nLang`。
+- 自动模式终端调整为独立窗口，默认不显示，可按需打开。
 
 ## 🚀 快速开始
 
@@ -196,6 +216,7 @@ npm run electron:build
 | `exportExcelToFolder` | data, folderPath | 导出 Excel 到指定目录 |
 | `exportMissingExcel` | results, folderPath | 导出缺失项 Excel |
 | `mergeLocaleFile` | tempData, type, filePath | 智能合并数据到目标文件/文件夹 |
+| `createLocaleFromTemplate` | tempData, type, folderPath, localeCode, templatePath | 复制模板新建语言并合并表格数据 |
 | `batchAddLocale` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（H5） |
 | `batchAddLocalePc` | dirPath, excludePattern, targetProperty, objectsToAdd, type | 批量添加词条（PC） |
 | `batchAddLocaleAdmin` | localesPath, targetProperty, objectsToAdd, type | 批量添加词条（Admin） |

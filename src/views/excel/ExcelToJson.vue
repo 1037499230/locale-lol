@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 type TargetType = 'h5' | 'pc' | 'admin'
+type MergeMode = 'existing' | 'create'
 
 interface LocaleTarget {
   /** 用于合并的原始文件/文件夹名称。 */
@@ -28,6 +29,9 @@ const showMergeDialog = ref(false)
 const targetType = ref<TargetType>('h5')
 const targetFolderPath = ref('')
 const targetFilePath = ref('')
+const mergeMode = ref<MergeMode>('existing')
+const newLocaleCode = ref('')
+const templateLocalePath = ref('')
 const localeTargets = ref<LocaleTarget[]>([])
 const isLoadingLocaleTargets = ref(false)
 let localeTargetScanId = 0
@@ -127,6 +131,7 @@ const loadLocaleTargets = async (folderPath: string) => {
   const scanId = ++localeTargetScanId
   targetFolderPath.value = folderPath
   targetFilePath.value = ''
+  templateLocalePath.value = ''
   localeTargets.value = []
 
   if (!folderPath) return
@@ -194,6 +199,7 @@ const loadConfiguredLocaleFolder = async () => {
     localeTargetScanId += 1
     targetFolderPath.value = ''
     targetFilePath.value = ''
+    templateLocalePath.value = ''
     localeTargets.value = []
     isLoadingLocaleTargets.value = false
     ElMessage.warning('当前应用类型尚未配置默认多语言文件夹，请手动选择')
@@ -219,35 +225,80 @@ watch(targetType, () => {
 
 watch(showMergeDialog, (visible) => {
   if (visible) {
+    targetFilePath.value = ''
+    templateLocalePath.value = ''
+    newLocaleCode.value = ''
+    mergeMode.value = 'existing'
     void loadConfiguredLocaleFolder()
   }
+})
+
+watch(mergeMode, () => {
+  targetFilePath.value = ''
+  templateLocalePath.value = ''
 })
 
 /**
  * 执行合并操作
  */
 const handleMerge = async () => {
-  if (!targetFilePath.value) {
+  const localeCode = newLocaleCode.value.trim()
+  const isCreateMode = mergeMode.value === 'create'
+
+  if (!targetFolderPath.value) {
+    ElMessage.warning('请先选择目标文件夹')
+    return
+  }
+
+  if (!isCreateMode && !targetFilePath.value) {
     ElMessage.warning('请先选择一个目标多语言')
     return
   }
 
+  if (isCreateMode) {
+    if (!localeCode) {
+      ElMessage.warning('请输入目标语言编号')
+      return
+    }
+    if (!/^[a-z0-9_-]+$/.test(localeCode)) {
+      ElMessage.warning('语言编号仅支持小写英文字母、数字、- 和 _')
+      return
+    }
+    if (!templateLocalePath.value) {
+      ElMessage.warning('请先选择模板语言')
+      return
+    }
+  }
+
   try {
-    ElMessage.info('正在合并...')
-    const res = await window.electronAPI?.mergeLocaleFile(
-      JSON.stringify(jsonData.value),
-      targetType.value,
-      targetFilePath.value
-    )
+    ElMessage.info(isCreateMode ? '正在新建并合并...' : '正在合并...')
+    const res = isCreateMode
+      ? await window.electronAPI?.createLocaleFromTemplate(
+        JSON.stringify(jsonData.value),
+        targetType.value,
+        targetFolderPath.value,
+        localeCode,
+        templateLocalePath.value
+      )
+      : await window.electronAPI?.mergeLocaleFile(
+        JSON.stringify(jsonData.value),
+        targetType.value,
+        targetFilePath.value
+      )
 
     if (res?.success) {
-      ElMessage.success('合并成功！')
+      ElMessage.success(isCreateMode ? '新建并合并成功！' : '合并成功！')
+      if (res.warning) {
+        ElMessage.error(res.warning)
+      }
       showMergeDialog.value = false
       targetFolderPath.value = ''
       targetFilePath.value = ''
+      templateLocalePath.value = ''
+      newLocaleCode.value = ''
       localeTargets.value = []
     } else {
-      ElMessage.error(res?.error || '合并失败')
+      ElMessage.error(res?.error || (isCreateMode ? '新建并合并失败' : '合并失败'))
     }
   } catch (error) {
     ElMessage.error('操作异常')
@@ -326,39 +377,85 @@ const downloadJson = () => {
           </el-input>
         </el-form-item>
 
-        <el-form-item label="目标多语言" class="locale-target-form-item">
-          <div v-if="targetFolderPath || isLoadingLocaleTargets" class="locale-target-panel w-full">
-            <div class="locale-target-panel__header">
-              <div>
-                <p class="locale-target-panel__title">选择合并目标</p>
-                <p class="locale-target-panel__subtitle">仅可选择一个{{ targetType === 'admin' ? '语言文件夹' : '语言文件' }}</p>
-              </div>
-              <span v-if="!isLoadingLocaleTargets" class="locale-target-panel__count">{{ localeTargets.length }} 个可用</span>
-            </div>
-
-            <el-skeleton v-if="isLoadingLocaleTargets" :rows="2" animated class="locale-target-panel__loading" />
-            <el-radio-group v-else-if="localeTargets.length" v-model="targetFilePath" class="locale-target-list">
-              <el-radio v-for="target in localeTargets" :key="target.path" :value="target.path" border class="locale-target-card">
-                <span class="locale-target-card__content">
-                  <span class="locale-target-card__type">{{ targetType === 'admin' ? '目录' : (targetType === 'pc' ? 'TS' : 'JSON') }}</span>
-                  <span class="locale-target-card__text">
-                    <span class="locale-target-card__name" :title="target.displayName">{{ target.displayName }}</span>
-                    <span v-if="target.displayName !== target.code" class="locale-target-card__code">{{ target.code }}</span>
-                  </span>
-                </span>
-              </el-radio>
-            </el-radio-group>
-            <div v-else class="locale-target-empty">
-              <span class="locale-target-empty__icon">—</span>
-              <span>该文件夹第一层未找到可合并的多语言</span>
-            </div>
-          </div>
-          <div v-else class="locale-target-hint">请选择目标文件夹后，再选择一个目标多语言。</div>
+        <el-form-item label="合并模式" class="merge-mode-form-item">
+          <el-radio-group v-model="mergeMode" class="merge-mode-group">
+            <el-radio value="existing" border class="merge-mode-card">
+              <span class="merge-mode-card__content">
+                <span class="merge-mode-card__title">合并到已有多语言文件</span>
+                <span class="merge-mode-card__subtitle">选择一个已配置的语言，直接写入表格内容</span>
+              </span>
+            </el-radio>
+            <el-radio value="create" border class="merge-mode-card">
+              <span class="merge-mode-card__content">
+                <span class="merge-mode-card__title">新建多语言{{ targetType === 'admin' ? '文件夹' : '文件' }}</span>
+                <span class="merge-mode-card__subtitle">从模板复制后，再合并表格内容</span>
+              </span>
+            </el-radio>
+          </el-radio-group>
         </el-form-item>
+
+        <template v-if="mergeMode === 'existing'">
+          <el-form-item label="目标多语言" class="locale-target-form-item">
+            <div v-if="targetFolderPath || isLoadingLocaleTargets" class="locale-target-panel w-full">
+              <div class="locale-target-panel__header">
+                <div>
+                  <p class="locale-target-panel__title">选择合并目标</p>
+                  <p class="locale-target-panel__subtitle">仅可选择一个{{ targetType === 'admin' ? '语言文件夹' : '语言文件' }}</p>
+                </div>
+                <span v-if="!isLoadingLocaleTargets" class="locale-target-panel__count">{{ localeTargets.length }} 个可用</span>
+              </div>
+              <el-skeleton v-if="isLoadingLocaleTargets" :rows="2" animated class="locale-target-panel__loading" />
+              <el-radio-group v-else-if="localeTargets.length" v-model="targetFilePath" class="locale-target-list">
+                <el-radio v-for="target in localeTargets" :key="target.path" :value="target.path" border class="locale-target-card">
+                  <span class="locale-target-card__content">
+                    <span class="locale-target-card__type">{{ targetType === 'admin' ? '目录' : (targetType === 'pc' ? 'TS' : 'JSON') }}</span>
+                    <span class="locale-target-card__text">
+                      <span class="locale-target-card__name" :title="target.displayName">{{ target.displayName }}</span>
+                      <span v-if="target.displayName !== target.code" class="locale-target-card__code">{{ target.code }}</span>
+                    </span>
+                  </span>
+                </el-radio>
+              </el-radio-group>
+              <div v-else class="locale-target-empty">
+                <span class="locale-target-empty__icon">—</span>
+                <span>该文件夹第一层未找到可合并的多语言</span>
+              </div>
+            </div>
+            <div v-else class="locale-target-hint">请选择目标文件夹后，再选择一个目标多语言。</div>
+          </el-form-item>
+        </template>
+
+        <template v-else>
+          <el-form-item label="目标语言编号">
+            <div class="new-locale-code-field">
+              <el-input v-model="newLocaleCode" maxlength="64" clearable placeholder="例如：fr、pt-br、zh_hans" />
+              <p>仅支持小写英文字母、数字、- 和 _；不能与目标文件夹内已有语言重名。</p>
+            </div>
+          </el-form-item>
+          <el-form-item label="模板语言" class="template-locale-form-item">
+            <el-select v-model="templateLocalePath" class="w-full" :loading="isLoadingLocaleTargets" placeholder="请选择要复制的模板语言" :disabled="!targetFolderPath">
+              <el-option
+                v-for="target in localeTargets"
+                :key="target.path"
+                :label="target.displayName === target.code ? target.displayName : target.displayName + '（' + target.code + '）'"
+                :value="target.path"
+              >
+                <span class="template-locale-option__name">{{ target.displayName }}</span>
+                <span v-if="target.displayName !== target.code" class="template-locale-option__code">{{ target.code }}</span>
+              </el-option>
+            </el-select>
+            <div v-if="targetFolderPath && !isLoadingLocaleTargets && !localeTargets.length" class="template-locale-empty">当前文件夹未找到可作为模板的已映射语言。</div>
+            <div v-else-if="!targetFolderPath" class="template-locale-empty">请先选择目标文件夹，再选择模板语言。</div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="showMergeDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleMerge" :disabled="!targetFilePath || isLoadingLocaleTargets">开始合并</el-button>
+        <el-button
+          type="primary"
+          @click="handleMerge"
+          :disabled="isLoadingLocaleTargets || (mergeMode === 'existing' ? !targetFilePath : !targetFolderPath || !newLocaleCode.trim() || !templateLocalePath)"
+        >开始合并</el-button>
       </template>
     </el-dialog>
   </div>
@@ -368,6 +465,89 @@ const downloadJson = () => {
 <style scoped>
 .locale-target-form-item :deep(.el-form-item__content) {
   min-width: 0;
+}
+
+
+.merge-mode-form-item :deep(.el-form-item__content),
+.template-locale-form-item :deep(.el-form-item__content) {
+  min-width: 0;
+}
+
+.merge-mode-group {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.merge-mode-card.el-radio.is-bordered {
+  display: flex;
+  width: 100%;
+  min-height: 88px;
+  height: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 13px;
+  border-color: #e1e7f1;
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+
+.merge-mode-card.el-radio.is-bordered:hover {
+  border-color: #a8c1f5;
+  box-shadow: 0 5px 14px rgb(55 106 190 / 10%);
+}
+
+.merge-mode-card.el-radio.is-bordered.is-checked {
+  border-color: #5b8def;
+  background: linear-gradient(135deg, #f5f8ff, #eef4ff);
+  box-shadow: 0 5px 16px rgb(63 117 209 / 15%);
+}
+
+.merge-mode-card :deep(.el-radio__label) {
+  flex: 1;
+  min-width: 0;
+  padding-left: 9px;
+  white-space: normal;
+}
+
+.merge-mode-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.merge-mode-card__title {
+  color: #34415a;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.merge-mode-card__subtitle {
+  color: #8a95a8;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.new-locale-code-field { width: 100%; }
+
+.new-locale-code-field p,
+.template-locale-empty {
+  margin: 6px 0 0;
+  color: #8a95a8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.template-locale-option__name { color: #34415a; }
+
+.template-locale-option__code {
+  float: right;
+  color: #98a2b3;
+  font-size: 12px;
 }
 
 .locale-target-panel {
@@ -542,7 +722,8 @@ const downloadJson = () => {
 }
 
 @media (max-width: 640px) {
-  .locale-target-list {
+  .locale-target-list,
+  .merge-mode-group {
     grid-template-columns: 1fr;
   }
 }

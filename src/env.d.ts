@@ -24,6 +24,13 @@ interface ElectronAPI {
   selectJsonFile: () => Promise<string | null>
   selectTargetFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string | null>
   mergeLocaleFile: (tempData: string, type: string, filePath: string) => Promise<{ success: boolean; error?: string }>
+  createLocaleFromTemplate: (
+    tempData: string,
+    type: string,
+    folderPath: string,
+    localeCode: string,
+    templatePath: string
+  ) => Promise<{ success: boolean; targetPath?: string; warning?: string; error?: string }>
   getLangMap: (type: string) => Promise<{ success: boolean; data?: any; error?: string }>
   saveLangMap: (data: string, type: string) => Promise<{ success: boolean; error?: string }>
   batchAddLocale: (dirPath: string, excludePattern: string, targetProperty: string, objectsToAdd: string, type: string) => Promise<{ success: boolean; message?: string; error?: string }>
